@@ -1,0 +1,2 @@
+# AI-Collusion---Response-to-Forced-Undercuts-under-a-Forced-Deviation-test-on-LLM-Agents.
+This experiment's novel contribution lies in how LLM agents respond to undercuts in competitive environments. While most experiments focus on mere observation, or what agents say and how they price disagree across many rounds in non forced deviation environments, this experiment directly tests where LLM agents truly undercut in response.
