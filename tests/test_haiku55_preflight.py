@@ -29,7 +29,7 @@ class Haiku55Contract(unittest.TestCase):
             self.assertNotIn("top_p",sent)
             self.assertNotIn("top_k",sent)
             self.assertEqual(sent["output_config"],{"effort":"medium"})
-            self.assertEqual(sent["max_tokens"],1200)
+            self.assertEqual(sent["max_tokens"],4096)
             return httpx.Response(200,json={
                 "model":"claude-haiku-5-5",
                 "id":"msg_fake_01",

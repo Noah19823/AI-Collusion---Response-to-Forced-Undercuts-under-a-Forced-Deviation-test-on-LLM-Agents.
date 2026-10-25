@@ -96,7 +96,7 @@ def call_seed(base_seed: int,agent: str,period: int) -> int:
 
 class APIClient:
     def __init__(self,provider: str,model: str,temperature: float=.7,
-                 max_tokens: int=1200,seed: int=0) -> None:
+                 max_tokens: int|None=None,seed: int=0) -> None:
         if provider not in ("anthropic","openai","vllm","deepseek"):
             raise ValueError("API provider must be anthropic, openai, vllm or deepseek")
         key_name={"anthropic":"ANTHROPIC_API_KEY","openai":"OPENAI_API_KEY",
@@ -110,6 +110,10 @@ class APIClient:
             if not self.base_url:
                 raise RuntimeError("Missing VLLM_BASE_URL (the Modal web endpoint URL)")
         self.provider, self.model = provider, model
+        if max_tokens is None:
+            # A10: Haiku 5.5's PLANS/INSIGHTS notes grow over a 150-round game and one
+            # reply passed 1200 tokens near round 120, so its cap is raised to 4096.
+            max_tokens=4096 if provider=="anthropic" and model.startswith("claude-haiku-5-5") else 1200
         self.temperature, self.max_tokens, self.seed = temperature, max_tokens, seed
         import httpx
         self.http=httpx.AsyncClient(timeout=120)
