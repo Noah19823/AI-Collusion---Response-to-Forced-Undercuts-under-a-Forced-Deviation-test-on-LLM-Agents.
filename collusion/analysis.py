@@ -12,6 +12,7 @@ from pathlib import Path
 
 from .market import Market
 from .runner import digest,load_jsonl
+from .records import validate_branch
 
 M=Market(quantity_scale=1)
 
@@ -33,52 +34,22 @@ def load_jsonl_continuation(path: Path, start: int) -> list[dict]:
     return rows
 
 def verify_pair(base_dir: Path, sham_dir: Path, cut_dir: Path) -> tuple:
-    base=load_jsonl(base_dir/"rounds.jsonl")
-    sm,s=_read_branch(sham_dir)
-    cm,c=_read_branch(cut_dir)
+    if sham_dir.resolve()==cut_dir.resolve():
+        raise ValueError('Cut and sham must have distinct branch ownership')
+    sm,s=validate_branch(base_dir,sham_dir)
+    cm,c=validate_branch(base_dir,cut_dir)
     fields=("model","provider","fork_period","cutter","prefix_sha256","source_round_sha256")
     for field in fields:
         if sm[field] != cm[field]:
             raise ValueError(f"Nonmatching fork {field}")
-    period=cm["fork_period"]
-    if digest(base[:period-1])!=cm["prefix_sha256"]:
-        raise ValueError("Prefix hash wrong")
-    if digest(base[period-1]) != cm["source_round_sha256"]:
-        raise ValueError("Source round hash wrong")
     if sm["intervention"] not in ("sham","sham2") or cm["intervention"]!="cut":
         raise ValueError("Expected cut and sham copies")
     if len(s)!=len(c):
         raise ValueError("Unequal branch horizons")
     cutter=cm["cutter"]
     other=next(a for a in ("Firm A","Firm B") if a!=cutter)
-    expected=base[period-2]["actors"][cutter]["executed_price"]*.9
-    if abs(c[0]["actors"][cutter]["executed_price"]-expected)>1e-9:
-        raise ValueError("Forced price does not match protocol")
-    if c[0]["actors"][cutter]["response"]["chosen_price"]!=expected:
-        raise ValueError("Cutter history did not reflect intervention")
-    # The LLM's round-t proposals (and both agents' written notes) are preserved.
-    for actor in (cutter,other):
-        source=base[period-1]["actors"][actor]
-        for key in ("prompt","prompt_sha256","model_chosen_price","model_meta"):
-            if c[0]["actors"][actor][key] != source[key] or s[0]["actors"][actor][key] != source[key]:
-                raise ValueError(f"Source proposal contaminated: {actor}.{key}")
-        for key in ("plans","insights","observations"):
-            if c[0]["actors"][actor]["response"].get(key) != source["response"].get(key):
-                raise ValueError("Source notes changed")
-    if c[0]["actors"][other]["executed_price"] != s[0]["actors"][other]["executed_price"]:
-        raise ValueError("Responder changed at simultaneous shock period")
-    if abs(s[0]["actors"][cutter]["executed_price"]-
-           base[period-1]["actors"][cutter]["executed_price"])>1e-12:
-        raise ValueError("Sham does not match base")
-    # Market outcomes are derived objectively from the executed prices.
-    for row in [s[0],c[0]]:
-        for actor in (cutter,other):
-            rival=next(a for a in ("Firm A","Firm B") if a!=actor)
-            actual_p=row["actors"][actor]["executed_price"]
-            b_p=row["actors"][rival]["executed_price"]
-            expected_p=Market().profit(actual_p,b_p)
-            if abs(expected_p-row["actors"][actor]["profit"])>1e-8:
-                raise ValueError("Market profit trace inconsistent")
+    # Both complete histories, including simultaneous proposals and all later
+    # prompts/notes/outcomes, were rebuilt by validate_branch above.
     return cm,s,c,other
 
 def evaluate_pair(base_dir:Path, sham_dir:Path, cut_dir:Path, rho: float) -> dict:
@@ -130,6 +101,10 @@ def estimate_rho(base_dirs: list[Path], *, max_period: int=75) -> dict:
     Endogenous observations can bias this estimate; report diagnostics and
     sensitivity rather than treating fitted rho as a revealed true mechanism.
     """
+    from .inference import rho_sufficient_stats, pooled_rho_diagnostics
+    diagnostics=pooled_rho_diagnostics([rho_sufficient_stats(p,max_period) for p in base_dirs])
+    if diagnostics['rho_for_model'] is None:
+        raise ValueError('Rho not identifiable: '+diagnostics['reason'].lower().replace('_',' '))
     xs,ys=[],[]
     for path in base_dirs:
         rows=load_jsonl(path/"rounds.jsonl")
@@ -153,8 +128,9 @@ def estimate_rho(base_dirs: list[Path], *, max_period: int=75) -> dict:
     rho=sum((x-mx)*(y-my) for x,y in zip(xs,ys))/denominator
     alpha=my-rho*mx
     resid=[y-alpha-rho*x for x,y in zip(xs,ys)]
-    return {"rho_unrestricted":rho,"rho_clipped_for_model":min(max(0,rho),.999),
+    return {"rho_unrestricted":rho,"rho_clipped_for_model":rho,
             "intercept":alpha,"n_observations":n,"residual_RMSE":(sum(r*r for r in resid)/n)**.5,
+            "identification_diagnostics":diagnostics,
             "note":"OLS parameter estimate is NOT proof of structural stickiness; bootstrap by run."}
 
 def main():

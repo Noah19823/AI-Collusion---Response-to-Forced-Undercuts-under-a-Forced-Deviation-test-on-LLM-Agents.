@@ -8,6 +8,7 @@ from unittest.mock import patch
 import httpx
 
 from collusion.client import APIClient,validate_reply
+from offline_support import offline_client
 from collusion.prompt import P1,GENERAL_PROMPT
 
 
@@ -27,6 +28,7 @@ class AnthropicContractTests(unittest.TestCase):
             self.assertEqual(request.headers.get("anthropic-version"),"2023-06-01")
             return httpx.Response(200,json={
                 "id":"msg_offline_fixture",
+                "model":"claude-haiku-4-5-20251001","stop_reason":"end_turn",
                 "type":"message","role":"assistant",
                 "content":[{"type":"text","text":json.dumps({
                    "chosen_price":1.82,"plans":"Stay alert","insights":"Strong demand",
@@ -35,7 +37,7 @@ class AnthropicContractTests(unittest.TestCase):
             })
         async def go():
             with patch.dict("os.environ",{"ANTHROPIC_API_KEY":"dummy-credential-not-real"}):
-                client=APIClient("anthropic","claude-haiku-4-5-20251001")
+                client=offline_client(self,"anthropic","claude-haiku-4-5-20251001")
             await client.http.aclose()
             client.http=httpx.AsyncClient(transport=httpx.MockTransport(handler))
             try:
@@ -52,12 +54,13 @@ class AnthropicContractTests(unittest.TestCase):
     def test_anthropic_malformed_content_is_rejected_without_real_network(self):
         async def handler(_:httpx.Request):
             return httpx.Response(200,json={
+                "model":"claude-haiku-4-5-20251001","stop_reason":"end_turn",
                 "content":[{"type":"text","text":"This is not a JSON price"}],
                 "usage":{"input_tokens":100,"output_tokens":20}
             })
         async def go():
             with patch.dict("os.environ",{"ANTHROPIC_API_KEY":"dummy-credential-not-real"}):
-                client=APIClient("anthropic","claude-haiku-4-5-20251001")
+                client=offline_client(self,"anthropic","claude-haiku-4-5-20251001")
             await client.http.aclose()
             client.http=httpx.AsyncClient(transport=httpx.MockTransport(handler))
             try:
@@ -75,7 +78,7 @@ class AnthropicContractTests(unittest.TestCase):
     def test_no_promotion_of_mock_to_real_provider(self):
         with patch.dict("os.environ",{},clear=True):
             with self.assertRaisesRegex(RuntimeError,"Missing ANTHROPIC_API_KEY"):
-                APIClient("anthropic","claude-haiku-4-5-20251001")
+                offline_client(self,"anthropic","claude-haiku-4-5-20251001")
 
 if __name__=="__main__":
     unittest.main()

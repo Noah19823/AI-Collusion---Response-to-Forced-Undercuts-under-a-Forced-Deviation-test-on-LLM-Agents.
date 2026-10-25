@@ -4,9 +4,11 @@ This local development branch adds a standalone Python runner, 12-run campaign d
 
 All commands run inside the working-copy directory.
 
+The implementation audit corrections and unaccepted methodology proposals are in [IMPLEMENTATION_BLOCKERS_AND_PROPOSALS_20261025.md](IMPLEMENTATION_BLOCKERS_AND_PROPOSALS_20261025.md). They do not authorize live execution. Unknown historical configurations and unapproved protocol transitions fail admission; do not overwrite old metadata or repeat completed work to bypass that gate.
+
 ## Offline, zero cost
 
-    python3 -m unittest discover -s tests -v
+    python3 tests/run_offline.py
     python3 -m collusion.runner benchmark
     python3 -m collusion.runner scripted
     python3 -m collusion.runner base --provider mock --rounds 8 --runs 1
@@ -30,29 +32,31 @@ Before paid model execution, estimate the full campaign against the available cr
 
 This zero-network estimator assumes 3,500 input and 600 output tokens per decision. It reports 6,890 model decisions and an estimated $4.48 spend before a 15% reserve, so $3 is not projected to cover the full campaign. It is not a hard provider spending cap; a bounded live pilot is required to measure actual token usage, thinking cost and growing history prompts.
 
-The official Haiku 5.5 API omits temperature, top_p and top_k. The harness freezes its documented medium effort, accepts text following thinking blocks, and records the served model and token usage. The current max_tokens=1200 may be exhausted by adaptive thinking before a valid JSON price; an exhausted response fails without an identical automatic retry.
+The Haiku 5.5 request omits temperature, top_p and top_k, disables thinking and uses medium effort. A10 set max_tokens=4096. Truncated and mismatched-model responses fail fast and remain in the attempt journal. That cap change does not automatically qualify earlier 1200-cap evidence.
 
-## Live model — NOT YET EXECUTED
+## Live model — separate authorization and evidence admission required
 
 Prerequisites: sign off the scientific corrections in INDEPENDENT_EXECUTION_HANDOFF_20261025.md; establish a monetary ceiling and API permission; configure the ANTHROPIC_API_KEY environment variable locally on the workstation without sharing it in chat. Every real model command explicitly requires --execute-paid.
 
+The command templates below also require caller-approved values for `REQUEST_LIMIT` and `SECONDS`. These bound total HTTP attempts (including retries) and elapsed time across one invocation; they do not set a dollar ceiling or authorize a new campaign. The raw-pretest correction in PR #5 and the separate methodology decisions must be resolved before use.
+
 Step 1: a correct 50-period one-product solo pretest:
 
-    python3 -m collusion.runner pretest --provider anthropic --model claude-haiku-5-5 --rounds 50 --execute-paid
+    python3 -m collusion.runner pretest --provider anthropic --model claude-haiku-5-5 --rounds 50 --execute-paid --max-http-attempts REQUEST_LIMIT --deadline-seconds SECONDS
 
-Read its completion.json. It must have pretest_near_one_product_monopoly=true.
+The pass marker alone is insufficient: validate the primitive rounds, monopoly criterion, raw attempt/outcome seals, actual source/configuration identity and compatible protocol. Missing historical records remain unavailable.
 
 Step 2: twelve independent 150-period duopoly baselines (qualified pretest path is mandatory):
 
-    python3 -m collusion.runner base --provider anthropic --model claude-haiku-5-5 --rounds 150 --runs 12 --pretest-dir logs/pretest_ID --execute-paid | tee logs/live_base_census.txt
+    python3 -m collusion.runner base --provider anthropic --model claude-haiku-5-5 --rounds 150 --runs 12 --pretest-dir logs/pretest_ID --execute-paid --max-http-attempts REQUEST_LIMIT --deadline-seconds SECONDS | tee logs/live_base_census.txt
 
 Step 3: freeze and execute the matched interventions. Provider/model/pretest must agree and live baselines must end above Nash.
 
-    python3 -m collusion.campaign --base-list logs/live_base_census.txt --provider anthropic --model claude-haiku-5-5 --execute-paid
+    python3 -m collusion.campaign --base-list logs/live_base_census.txt --provider anthropic --model claude-haiku-5-5 --execute-paid --max-http-attempts REQUEST_LIMIT --deadline-seconds SECONDS
 
 Step 4: primitive log recomputation, cluster-bootstrap rho re-estimation, and abstention checks.
 
-    python3 -m collusion.inference --campaign logs/campaign_ID --resamples 10000
+    python3 -m collusion.amendment_analysis --campaign logs/campaign_ID --resamples 10000
 
 The agent's original simultaneous period-t choices are reused in both branches; only the specified executed price and subsequent market history are modified. All generated logs reside in ignored logs/ and include explicit provider/synthetic labels.
 
@@ -66,6 +70,6 @@ The harness has a `deepseek` provider that calls DeepSeek's OpenAI-compatible AP
 
 Then use the same commands with `--provider deepseek --model deepseek-flash`, pretest first:
 
-    python3 -m collusion.runner pretest --provider deepseek --model deepseek-flash --rounds 50 --execute-paid
+    python3 -m collusion.runner pretest --provider deepseek --model deepseek-flash --resolved-model EXACT_SERVER_MODEL_ID --rounds 50 --execute-paid --max-http-attempts REQUEST_LIMIT --deadline-seconds SECONDS
 
-`deepseek-flash` points at DeepSeek-V4.1-Flash (currently 1017) and the legacy deepseek-chat alias is retired, so every call logs `served_model` with the version the server reports. Put that version in the report. DeepSeek isn't assumed to honour seeds, so the two copies of a fork can drift apart like any hosted API, and the second no-cut copy measures how much. Garra (2026) found DeepSeek-V3 failed the monopoly pretest and DeepSeek-V3.1 passed, so post the pretest result before going further.
+Declare and record the exact server identity behind any provider alias. The adapter rejects an unexpected version rather than mixing model populations. DeepSeek is not assumed to honor seeds. Its evidence and qualification remain separate from Haiku, including the pretest and sham-noise interpretation.

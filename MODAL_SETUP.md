@@ -39,6 +39,8 @@ Use this if nobody can add money for Claude. If the switch happens, Noah logs it
 
 ## Running the experiment
 
+This guide is not deployment or experiment authorization. The [implementation audit follow-up](IMPLEMENTATION_BLOCKERS_AND_PROPOSALS_20261025.md) records unresolved vLLM qualification and historical-admission decisions. Equal seeds alone do not qualify online serving determinism. Use caller-approved `REQUEST_LIMIT` and `SECONDS` in the templates below; each invocation has its own shared HTTP-attempt and elapsed-time bound.
+
 In the terminal you run the experiment from:
 
 ```
@@ -49,20 +51,20 @@ export VLLM_API_KEY=<your-long-random-string>
 Then the same steps as `README_INDEPENDENT_RUNNER.md`, with `--provider vllm`:
 
 ```
-python3 -m collusion.runner pretest --provider vllm --model Qwen/Qwen3-32B-FP8 --rounds 50 --execute-paid
+python3 -m collusion.runner pretest --provider vllm --model Qwen/Qwen3-32B-FP8 --rounds 50 --execute-paid --max-http-attempts REQUEST_LIMIT --deadline-seconds SECONDS
 ```
 
-Check `completion.json` for `"pretest_near_one_product_monopoly": true` and post the result in the chat. If it passes:
+The completion marker alone is insufficient. Raw pretest records, source/configuration binding and attempt evidence must qualify before baselines; an unknown or changed configuration stops admission.
 
 ```
-python3 -m collusion.runner base --provider vllm --model Qwen/Qwen3-32B-FP8 --rounds 150 --runs 12 --pretest-dir logs/pretest_ID --execute-paid | tee logs/live_base_census.txt
+python3 -m collusion.runner base --provider vllm --model Qwen/Qwen3-32B-FP8 --rounds 150 --runs 12 --pretest-dir logs/pretest_ID --execute-paid --max-http-attempts REQUEST_LIMIT --deadline-seconds SECONDS | tee logs/live_base_census.txt
 ```
 
 Post the rho estimate in the chat and wait for Noah to log it. Then:
 
 ```
-python3 -m collusion.campaign --base-list logs/live_base_census.txt --provider vllm --model Qwen/Qwen3-32B-FP8 --execute-paid
-python3 -m collusion.inference --campaign logs/campaign_ID --resamples 10000
+python3 -m collusion.campaign --base-list logs/live_base_census.txt --provider vllm --model Qwen/Qwen3-32B-FP8 --execute-paid --max-http-attempts REQUEST_LIMIT --deadline-seconds SECONDS
+python3 -m collusion.amendment_analysis --campaign logs/campaign_ID --resamples 10000
 ```
 
 `--execute-paid` is still required. The harness uses it for any call to a real model, even though Modal credits pay for this one.

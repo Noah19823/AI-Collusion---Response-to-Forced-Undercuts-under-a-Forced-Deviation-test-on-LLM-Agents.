@@ -2,6 +2,7 @@ import os, unittest
 from unittest import mock
 
 from collusion.client import APIClient, call_period, call_seed, get_client
+from offline_support import offline_client
 
 
 class VLLMClientTests(unittest.TestCase):
@@ -25,7 +26,7 @@ class VLLMClientTests(unittest.TestCase):
         self.assertNotEqual(a, call_seed(8, "Firm A", 42))
 
     def test_request_shape(self):
-        client = get_client("vllm", "Qwen/Qwen3-32B-FP8", seed=3)
+        client = offline_client(self,"vllm", "Qwen/Qwen3-32B-FP8", seed=3)
         url, headers, payload = client.build_request("Round 9\nmarket data", "Firm A")
         self.assertEqual(url, "https://example.modal.run/v1/chat/completions")
         self.assertEqual(headers["Authorization"], "Bearer test-key")
@@ -34,7 +35,7 @@ class VLLMClientTests(unittest.TestCase):
         self.assertEqual(payload["response_format"], {"type": "json_object"})
 
     def test_cut_and_sham_share_seed_at_same_period(self):
-        client = get_client("vllm", "m", seed=11)
+        client = offline_client(self,"vllm", "m", seed=11)
         _, _, sham = client.build_request("Round 75\nprice 1.90", "Firm B")
         _, _, cut = client.build_request("Round 75\nprice 1.71", "Firm B")
         self.assertEqual(sham["seed"], cut["seed"])
@@ -46,10 +47,10 @@ class VLLMClientTests(unittest.TestCase):
         def handler(request):
             seen["body"] = json.loads(request.content)
             reply = '<think>\n\n</think>{"chosen_price": 1.85, "plans": "hold", "insights": "", "observations": ""}'
-            return httpx.Response(200, json={"choices": [{"message": {"content": reply}}],
+            return httpx.Response(200, json={"model":"m","choices": [{"finish_reason":"stop","message": {"content": reply}}],
                                              "usage": {"prompt_tokens": 10, "completion_tokens": 5}})
 
-        client = get_client("vllm", "m", seed=1)
+        client = offline_client(self,"vllm", "m", seed=1)
         client.http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
         reply, meta = asyncio.run(client.choose("Round 4\nx", "Firm A"))
         self.assertEqual(reply["chosen_price"], 1.85)
@@ -59,7 +60,7 @@ class VLLMClientTests(unittest.TestCase):
     def test_deepseek_request_and_served_model(self):
         import asyncio, json, httpx
         with mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": "ds-key"}):
-            client = get_client("deepseek", "deepseek-chat", seed=1)
+            client = offline_client(self,"deepseek", "deepseek-chat", seed=1,resolved_model="deepseek-v3.1")
         url, headers, payload = client.build_request("Round 3\nx", "Firm A")
         self.assertEqual(url, "https://api.deepseek.com/chat/completions")
         self.assertNotIn("chat_template_kwargs", payload)
@@ -68,7 +69,7 @@ class VLLMClientTests(unittest.TestCase):
         def handler(request):
             reply = '{"chosen_price": 1.8, "plans": "", "insights": "", "observations": ""}'
             return httpx.Response(200, json={"model": "deepseek-v3.1",
-                                             "choices": [{"message": {"content": reply}}]})
+                                             "choices": [{"finish_reason":"stop","message": {"content": reply}}]})
         client.http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
         reply, meta = asyncio.run(client.choose("Round 3\nx", "Firm A"))
         self.assertEqual(reply["chosen_price"], 1.8)
@@ -81,7 +82,7 @@ class VLLMClientTests(unittest.TestCase):
             return httpx.Response(400, json={"type": "error", "error": {
                 "type": "invalid_request_error",
                 "message": "model: claude-x not found (key sk-ant-abcdef123456)"}})
-        client = get_client("vllm", "m", seed=1)
+        client = offline_client(self,"vllm", "m", seed=1)
         client.http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
         with self.assertRaises(ProviderRejected) as ctx:
             asyncio.run(client.choose("Round 1\nx", "Firm A"))
@@ -93,7 +94,7 @@ class VLLMClientTests(unittest.TestCase):
     def test_missing_base_url_refuses(self):
         with mock.patch.dict(os.environ, {"VLLM_BASE_URL": ""}):
             with self.assertRaises(RuntimeError):
-                APIClient("vllm", "m")
+                offline_client(self,"vllm", "m")
 
 
 if __name__ == "__main__":

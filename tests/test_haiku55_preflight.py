@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from collusion.runner import DEFAULT_MODEL
 from collusion.client import APIClient
+from offline_support import offline_client
 from collusion.preflight_budget import (
     stage_counts,estimate_campaign,scan_usage_records,estimate_cost
 )
@@ -45,7 +46,7 @@ class Haiku55Contract(unittest.TestCase):
             })
         async def run():
             with patch.dict("os.environ",{"ANTHROPIC_API_KEY":"invalid-test-only"}):
-                client=APIClient("anthropic",DEFAULT_MODEL["anthropic"])
+                client=offline_client(self,"anthropic",DEFAULT_MODEL["anthropic"])
             await client.http.aclose()
             client.http=httpx.AsyncClient(transport=httpx.MockTransport(handler))
             try:
@@ -66,13 +67,14 @@ class Haiku55Contract(unittest.TestCase):
             self.assertEqual(sent["temperature"],.7)
             self.assertNotIn("output_config",sent)
             return httpx.Response(200,json={
+                "model":"claude-haiku-4-5-20251001","stop_reason":"end_turn",
                 "content":[{"type":"text","text":json.dumps({
                     "chosen_price":1.70,"plans":"","insights":""})}],
                 "usage":{"input_tokens":10,"output_tokens":30}
             })
         async def run():
             with patch.dict("os.environ",{"ANTHROPIC_API_KEY":"invalid-test-only"}):
-                client=APIClient("anthropic","claude-haiku-4-5-20251001")
+                client=offline_client(self,"anthropic","claude-haiku-4-5-20251001")
             await client.http.aclose()
             client.http=httpx.AsyncClient(transport=httpx.MockTransport(handler))
             try:
@@ -99,7 +101,8 @@ class BudgetTests(unittest.TestCase):
         self.assertAlmostEqual(report["expected_spend_usd"],4.4785)
         self.assertAlmostEqual(report["available_for_spend_after_reserve_usd"],2.55)
         self.assertFalse(report["full_plan_fits_assumed_budget"])
-        self.assertAlmostEqual(report["estimated_additional_budget_required_usd"],1.9285)
+        self.assertAlmostEqual(report["estimated_spend_capacity_gap_usd"],1.9285)
+        self.assertAlmostEqual(report["estimated_additional_budget_required_usd"],4.4785/.85-3)
         self.assertTrue(estimate_campaign(credits_usd=6)["full_plan_fits_assumed_budget"])
 
     def test_budget_estimates_long_prompt_rate_tier(self):
@@ -135,7 +138,7 @@ class FailFastTests(unittest.TestCase):
             return httpx.Response(400,json={"type":"error","error":{"message":"invalid request"}})
         async def run():
             with patch.dict("os.environ",{"ANTHROPIC_API_KEY":"invalid-test-only"}):
-                client=APIClient("anthropic","claude-haiku-5-5")
+                client=offline_client(self,"anthropic","claude-haiku-5-5")
             await client.http.aclose()
             client.http=httpx.AsyncClient(transport=httpx.MockTransport(handler))
             try:
@@ -158,7 +161,7 @@ class FailFastTests(unittest.TestCase):
             })
         async def run():
             with patch.dict("os.environ",{"ANTHROPIC_API_KEY":"invalid-test-only"}):
-                client=APIClient("anthropic","claude-haiku-5-5")
+                client=offline_client(self,"anthropic","claude-haiku-5-5")
             await client.http.aclose()
             client.http=httpx.AsyncClient(transport=httpx.MockTransport(handler))
             try:
@@ -173,7 +176,7 @@ class DeepSeekCompatibility(unittest.TestCase):
     def test_supported_model_name_and_non_thinking_json(self):
         self.assertEqual(DEFAULT_MODEL["deepseek"],"deepseek-flash")
         with patch.dict("os.environ",{"DEEPSEEK_API_KEY":"test-dummy-not-real"}):
-            client=APIClient("deepseek",DEFAULT_MODEL["deepseek"])
+            client=offline_client(self,"deepseek",DEFAULT_MODEL["deepseek"])
         url,headers,body=client.build_request("toy pricing state","Firm A")
         self.assertEqual(url,"https://api.deepseek.com/chat/completions")
         self.assertEqual(body["model"],"deepseek-flash")
@@ -186,13 +189,13 @@ class DeepSeekCompatibility(unittest.TestCase):
         async def handler(req:httpx.Request):
             return httpx.Response(200,json={
                 "model":"DeepSeek-V4.1-Flash-1017",
-                "choices":[{"message":{"content":json.dumps({
+                "choices":[{"finish_reason":"stop","message":{"content":json.dumps({
                     "chosen_price":1.82,"plans":"","insights":""})}}],
                 "usage":{"prompt_tokens":3500,"completion_tokens":300}
             })
         async def run():
             with patch.dict("os.environ",{"DEEPSEEK_API_KEY":"test-dummy-not-real"}):
-                client=APIClient("deepseek","deepseek-flash")
+                client=offline_client(self,"deepseek","deepseek-flash",resolved_model="DeepSeek-V4.1-Flash-1017")
             await client.http.aclose()
             client.http=httpx.AsyncClient(transport=httpx.MockTransport(handler))
             try:

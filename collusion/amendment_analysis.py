@@ -18,9 +18,12 @@ from collections import defaultdict
 from pathlib import Path
 
 from .analysis import _read_branch, verify_pair
-from .inference import fit_pooled_rho, rho_sufficient_stats, percentile
+from .inference import fit_pooled_rho, pooled_rho_diagnostics, rho_sufficient_stats, percentile
 from .market import Market
 from .runner import digest
+from .census import validate_plan, validate_branch_ownership
+from .records import validate_branch
+from .robustness import certify_rho_interval
 
 MARKET = Market(quantity_scale=1)
 AMENDMENT_GRID = (0.0, 0.25, 0.5, 0.75, 0.9, 0.95)
@@ -69,6 +72,10 @@ def pair_features(first: list[dict], second: list[dict],
 def checked_second_sham(sham_dir: Path, sham2_dir: Path):
     first_meta, first=_read_branch(sham_dir)
     second_meta, second=_read_branch(sham2_dir)
+    if sham_dir.resolve()==sham2_dir.resolve():
+        raise ValueError('Second sham must have distinct branch ownership')
+    validate_branch(Path(first_meta['base_path']),sham_dir)
+    validate_branch(Path(second_meta['base_path']),sham2_dir)
     for k in ("model","provider","fork_period","cutter",
               "prefix_sha256","source_round_sha256"):
         if first_meta[k]!=second_meta[k]:
@@ -100,13 +107,39 @@ def load_campaign(campaign:Path) -> dict:
     if digest(manifest_path.read_bytes())!=seal.get("manifest_sha256"):
         raise ValueError("Manifest digest mismatch")
     manifest=[json.loads(x) for x in manifest_path.read_text().splitlines() if x.strip()]
+    if not manifest:
+        raise ValueError('No completed fork rows')
     plan=json.loads((campaign/"plan.json").read_text())
+    checked_bases=validate_plan(plan)
+    if 'plan_sha256' in plan and seal.get('plan_sha256')!=plan['plan_sha256']:
+        raise ValueError('Completion does not bind the frozen plan')
     if digest(plan["rows"])!=plan.get("plan_digest"):
         raise ValueError("Plan digest mismatch")
     if len(manifest)!=seal["rows_complete"]:
         raise ValueError("Manifest row count mismatch")
     if len(manifest)>len(plan["rows"]):
         raise ValueError("Extra rows not in predeclared plan")
+    if seal.get('campaign_attempts_sha256'):
+        raw_attempts=(campaign/'attempts.jsonl').read_bytes()
+        if digest(raw_attempts)!=seal['campaign_attempts_sha256']:
+            raise ValueError('Campaign attempt census seal mismatch')
+        starts=set()
+        completed={}
+        for line in raw_attempts.splitlines():
+            event=json.loads(line)
+            key=(event['plan_row'],event['kind'])
+            if event['event']=='branch_started' and key not in starts:
+                starts.add(key)
+            elif event['event']=='branch_complete' and key in starts and key not in completed:
+                completed[key]=str(Path(event['branch']).resolve())
+            else:
+                raise ValueError('Invalid/duplicate campaign attempt lifecycle')
+        expected={(entry['plan_row'],kind):str(Path(path).resolve())
+                  for entry in manifest for kind,path in entry['branches'].items()}
+        if completed!=expected or starts!=set(expected):
+            raise ValueError('Campaign attempt census differs from completed branch ownership')
+    elif seal['provider']!='mock':
+        raise ValueError('Live campaign lacks its attempt census seal')
 
     groups=defaultdict(list)
     stats={}
@@ -114,12 +147,14 @@ def load_campaign(campaign:Path) -> dict:
     providers=set()
     second_shams=0
     seen_rows=set()
+    seen_branch_paths=set()
+    seen_branch_raw=set()
     for entry in manifest:
         index=entry["plan_row"]
         if index in seen_rows:
             raise ValueError("Duplicate plan row in campaign manifest")
         seen_rows.add(index)
-        if not isinstance(index,int) or index<0 or index>=len(plan["rows"]):
+        if type(index) is not int or index<0 or index>=len(plan["rows"]):
             raise ValueError("Bad manifest plan_row")
         expected=plan["rows"][index]
         for name in ("run_id","base","period","cutter","subset_extra"):
@@ -127,6 +162,7 @@ def load_campaign(campaign:Path) -> dict:
                 raise ValueError("Manifest differs from predeclared plan: "+name)
         if entry.get("status")!="COMPLETE":
             raise ValueError("Incomplete manifest row")
+        validate_branch_ownership(entry,seen_branch_paths,seen_branch_raw)
         run_id=entry["run_id"]
         base=Path(entry["base"])
         bm=json.loads((base/"meta.json").read_text())
@@ -135,8 +171,10 @@ def load_campaign(campaign:Path) -> dict:
             raise ValueError("Mixed model providers in evidence")
         stats.setdefault(run_id,rho_sufficient_stats(base))
         branches=entry["branches"]
-        if "cut" not in branches or "sham" not in branches:
-            raise ValueError("Missing required intervention")
+        include_up=plan.get('include_up',seal.get('include_up',any('up' in r['branches'] for r in manifest)))
+        expected_branches={'cut','sham'}|({'sham2'}|({'up'} if include_up else set()) if entry['subset_extra'] else set())
+        if set(branches)!=expected_branches:
+            raise ValueError('Branch roles/second-sham assignment differ from the frozen plan')
         cm,sham,cut,responder=verify_pair(
             base,Path(branches["sham"]),Path(branches["cut"])
         )
@@ -147,9 +185,8 @@ def load_campaign(campaign:Path) -> dict:
             noise[run_id].append(checked_second_sham(
                 Path(branches["sham"]),Path(branches["sham2"])
             ))
-        if "up" in branches and seal["provider"]!="mock":
-            # No role in current amended main decision rule.
-            pass
+        if "up" in branches:
+            validate_branch(base,Path(branches['up']))
     if len(providers)!=1:
         raise ValueError("Mixed campaign providers")
     recorded_branch_count=sum(
@@ -167,6 +204,8 @@ def load_campaign(campaign:Path) -> dict:
         "n_second_shams":second_shams,
         "n_runs":len(groups),
         "plan_matches":True,
+        "independent_base_identities":len(checked_bases),
+        "layout_complete":seen_rows==set(range(48)),
         "amendment":"2026-10-25/A1-A6"
     }
 
@@ -218,6 +257,7 @@ def analysis(campaign:Path, *, repeats:int=10000,seed:int=20261025) -> dict:
     sampled_ids=[rng.choices(ids,k=len(ids)) for _ in range(repeats)]
     stats=data["rho_stats"]
     raw_rho=fit_pooled_rho([stats[i] for i in ids])
+    rho_diagnostics=pooled_rho_diagnostics([stats[i] for i in ids])
     bootstrap_rhos=[
         fit_pooled_rho([stats[i] for i in sample])
         for sample in sampled_ids
@@ -273,10 +313,8 @@ def analysis(campaign:Path, *, repeats:int=10000,seed:int=20261025) -> dict:
             boot_dynamic.append(sum(values[i] for i in sample)/len(sample))
         dynamic_ci=[percentile(boot_dynamic,.025),percentile(boot_dynamic,.975)] if boot_dynamic else None
         floor=_null_floor(data["noise_by_run"],raw_rho,"dynamic")
-        # The earlier Section-7 robustness gate requests sign stability
-        # throughout the 95% rho interval. Numerically sample 11 points;
-        # this is an explicit discrete sensitivity audit, not an exact
-        # continuum proof.
+        # Preserve the descriptive scan, but never use it to certify the
+        # protocol's all-rho requirement. Bound the complete interval below.
         lower,upper=rho_ci
         rho_check=[lower+(upper-lower)*j/10 for j in range(11)]
         robust_checks=[]
@@ -287,14 +325,16 @@ def analysis(campaign:Path, *, repeats:int=10000,seed:int=20261025) -> dict:
         negative_ci=(dynamic_ci is not None and dynamic_ci[1]<0)
         exceeds_floor=(floor["p95_absolute"] is not None and
                        abs(observed)>floor["p95_absolute"])
-        robust=all(x["negative_ci"] for x in robust_checks)
+        continuum=certify_rho_interval(data['groups'],sampled_ids,rho_ci)
+        robust=continuum['certified']
         positive_conclusion=bool(negative_ci and exceeds_floor and robust and
                                  complete and not is_mock)
         # Never call an unqualified or synthetic inference 'punishment'.
         point_dynamic={"rho":raw_rho,"mean":observed,
             "ci95":dynamic_ci,"negative_ci":negative_ci,
             "noise_floor":floor,"exceeds_noise_floor":exceeds_floor,
-            "robust_11_point_grid_over_rho_ci":robust,
+            "robust_11_point_grid_over_rho_ci":all(x['negative_ci'] for x in robust_checks),
+            "rho_continuum_certificate":continuum,
             "rho_ci_grid_checks":robust_checks,
             "conclusion":"BELOW_RESTRICTED_NULL" if positive_conclusion
                 else "NOT_ESTABLISHED"}
@@ -324,6 +364,8 @@ def analysis(campaign:Path, *, repeats:int=10000,seed:int=20261025) -> dict:
         "n_second_shams":data["n_second_shams"],
         "bootstrap_repeats":repeats,
         "rho_point":raw_rho,
+        "rho_unrestricted":rho_diagnostics['rho_unrestricted'],
+        "rho_diagnostics":rho_diagnostics,
         "rho_ci95":rho_ci,
         "rho_bootstrap_valid_fraction":valid_fraction,
         "rho_identified_for_decision":rho_qualified,

@@ -12,6 +12,7 @@ import math
 from pathlib import Path
 
 from .runner import DEFAULT_MODEL
+from .journal import summarize_attempts
 
 INPUT_USD_PER_M = .10
 OUTPUT_USD_PER_M = .50
@@ -79,7 +80,32 @@ def scan_usage_records(path:Path)->dict:
             "mean_output_tokens":sum(x[1] for x in observations)/len(observations),
             "max_input_tokens":max(x[0] for x in observations),
             "max_output_tokens":max(x[1] for x in observations),
-            "warning":"An early pretest may underestimate long 100-period-history prompts."}
+            "scope":"Accepted primitive replies only; copied fork-source replies may repeat and rejected attempts are absent. This is not a unique-call cost ledger.",
+            "warning":"An early pretest may underestimate long 100-period-history prompts. Use --attempt-log for all-attempt accounting."}
+
+def scan_attempt_usage(path:Path) -> dict:
+    """All received attempts, including rejected replies; unknown stays unknown."""
+    accounting=summarize_attempts(path)
+    records=[json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    starts={r['attempt_id']:r for r in records if r['event']=='request_started'}
+    known_cost=0.0
+    priced=0
+    for row in records:
+        if row['event']!='response_received':continue
+        start=starts[row['attempt_id']]
+        usage=row.get('usage') or {}
+        # Never apply Haiku 5.5 prices to another model population.
+        if start['provider']!='anthropic' or start['requested_model']!='claude-haiku-5-5' or row.get('served_model')!='claude-haiku-5-5':continue
+        i,o=usage.get('input_tokens'),usage.get('output_tokens')
+        if any(isinstance(v,bool) or not isinstance(v,int) or v<0 for v in (i,o)):continue
+        if usage.get('cache_read_input_tokens',0) or usage.get('cache_creation_input_tokens',0):continue
+        known_cost+=estimate_cost(1,i,o)
+        priced+=1
+    return {'attempt_accounting':accounting,'priced_attempts':priced,
+            'unpriced_or_unknown_attempts':accounting['http_attempts']-priced,
+            'known_token_cost_estimate_usd':known_cost if priced else None,
+            'cost_complete_under_declared_rate_model':priced==accounting['http_attempts'] and priced>0,
+            'qualification':'Token-rate estimate, not an invoice. Missing usage, unsupported models and caching are unpriced, never zero. No collection or cost authorization.'}
 
 def estimate_campaign(*,credits_usd:float,input_tokens:float=3500,
                       output_tokens:float=600,reserve_fraction:float=.15,
@@ -113,7 +139,9 @@ def estimate_campaign(*,credits_usd:float,input_tokens:float=3500,
         "reserve_fraction":reserve_fraction,
         "available_for_spend_after_reserve_usd":permitted,
         "full_plan_fits_assumed_budget":grand <= permitted,
-        "estimated_additional_budget_required_usd":max(0.0,grand-permitted),
+        "estimated_spend_capacity_gap_usd":max(0.0,grand-permitted),
+        "required_starting_credits_with_reserve_usd":grand/(1-reserve_fraction),
+        "estimated_additional_budget_required_usd":max(0.0,grand/(1-reserve_fraction)-credits_usd),
         "important":"Not a hard spending cap. Actual tokens vary with 100-period history, tokenizer, thinking, retries, model pricing, caching, and API behavior. Do not start paid campaign solely on this estimate."
     }
 
@@ -123,10 +151,15 @@ def main():
     parser.add_argument("--input-tokens",type=float,default=3500)
     parser.add_argument("--output-tokens",type=float,default=600)
     parser.add_argument("--reserve-fraction",type=float,default=.15)
-    parser.add_argument("--usage-log",type=Path)
+    logs=parser.add_mutually_exclusive_group()
+    logs.add_argument("--usage-log",type=Path)
+    logs.add_argument('--attempt-log',type=Path,help='Reconstruct received-attempt costs, including rejected replies')
     parser.add_argument("--strict-budget",action="store_true",
                         help="Exit nonzero if estimated full design exceeds available credits")
     args=parser.parse_args()
+    if args.attempt_log:
+        print(json.dumps(scan_attempt_usage(args.attempt_log),indent=2))
+        return
     sample=scan_usage_records(args.usage_log) if args.usage_log else None
     output=estimate_campaign(credits_usd=args.credits_usd,
                     input_tokens=args.input_tokens,output_tokens=args.output_tokens,
