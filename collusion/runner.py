@@ -173,14 +173,15 @@ async def fork_episode(client,provider: str,model: str,base_dir: Path,
         raise ValueError("Must fork a duopoly")
     if bm["model"]!=model or bm["provider"]!=provider:
         raise ValueError("Branch provider/model must match source")
-    if bm["protocol_sha256"]!=digest((ROOT/"PROTOCOL.md").read_bytes()):
-        raise ValueError("Source protocol digest differs; do not silently mix versions")
+    # Logged amendments change PROTOCOL.md, so the base may have run under an earlier
+    # version. Its hash is copied into the fork's meta.json instead of being required to match.
     base=load_jsonl(base_dir/"rounds.jsonl")
     if len(base)<period: raise ValueError("Missing base source checkpoint")
     prefix=copy.deepcopy(base[:period-1])
     source=choose_fork_source(base,period,cutter,kind,Market())
     path=run_folder("fork_"+kind)
     meta=common_meta(provider,model,"fork_"+kind,horizon,2,seed)
+    meta["base_protocol_sha256"]=bm["protocol_sha256"]
     meta["max_tokens"]=getattr(client,"max_tokens",None)
     meta.update({"base_path":str(base_dir.resolve()),"fork_period":period,"cutter":cutter,
                  "intervention":kind,"prefix_sha256":digest(base[:period-1]),

@@ -29,8 +29,6 @@ def load_base_list(path:Path) -> list[Path]:
         completed=json.loads((d/"completion.json").read_text())
         if meta["kind"]!="base" or meta["n_agents"]!=2 or completed["completed_rounds"]<max(FORKS):
             raise ValueError(f"Bad or too-short duopoly base: {d}")
-        if meta["protocol_sha256"]!=digest((Path(__file__).resolve().parents[1]/"PROTOCOL.md").read_bytes()):
-            raise ValueError(f"Protocol mismatch in base: {d}")
     return paths
 
 def make_plan(bases:list[Path], seed:int=20261025) -> dict:
@@ -49,7 +47,8 @@ def make_plan(bases:list[Path], seed:int=20261025) -> dict:
             "seed_local_only":seed,"rows":candidates,
             "plan_digest":digest(candidates)}
 
-async def execute_plan(plan:dict,provider:str,model:str,limit:int=None,include_up:bool=False) -> Path:
+async def execute_plan(plan:dict,provider:str,model:str,limit:int=None,include_up:bool=False,
+                       concurrency:int=1,resume:Path=None) -> Path:
     # Fail BEFORE opening a campaign if the source cannot satisfy its claims.
     checked=set()
     for row in plan["rows"]:
@@ -62,27 +61,50 @@ async def execute_plan(plan:dict,provider:str,model:str,limit:int=None,include_u
             raise ValueError("Mixed model/provider base runs")
         if provider!="mock" and any(p <= 1.47292666003 for p in completed["last10_mean"].values()):
             raise ValueError("Base runs did not stabilize above Nash; do not silently substitute constructed histories")
-    path=run_folder("campaign")
-    save_json(path/"plan.json",plan)
-    manifest=path/"manifest.jsonl"
     selected=plan["rows"] if limit is None else plan["rows"][:limit]
-    for ix,row in enumerate(selected):
-        collected={}
-        kinds=["sham","cut"]+((["sham2","up"] if include_up else ["sham2"]) if row["subset_extra"] else [])
-        for kind in kinds:
-            client=get_client(provider,model,seed=plan["seed_local_only"]+row["run_id"])
-            try:
-                p=await fork_episode(client,provider,model,Path(row["base"]),
-                     row["period"],15,row["cutter"],kind,plan["seed_local_only"]+row["run_id"])
-                collected[kind]=str(p.resolve())
-            finally:
-                if hasattr(client,"close"): await client.close()
-        verify_pair(Path(row["base"]),Path(collected["sham"]),Path(collected["cut"]))
-        record={"plan_row":ix,**row,"branches":collected,"status":"COMPLETE"}
-        with manifest.open("a",encoding="utf-8") as f:
-            f.write(json.dumps(record,sort_keys=True)+"\n")
-        if (ix+1)%12==0:
-            print(f"Validated {ix+1}/{len(selected)} matched fork points",flush=True)
+    finished=set()
+    if resume is not None:
+        # Continue a campaign that stopped partway. The plan must be identical, and
+        # rows already in the manifest are not run again.
+        path=resume
+        old_plan=json.loads((path/"plan.json").read_text())
+        if old_plan["plan_digest"]!=plan["plan_digest"]:
+            raise ValueError("Resume plan differs from the original campaign plan")
+        if (path/"completion.json").exists():
+            raise ValueError("Campaign already complete")
+        manifest=path/"manifest.jsonl"
+        if manifest.exists():
+            finished={json.loads(x)["plan_row"] for x in manifest.read_text().splitlines() if x.strip()}
+        print(f"Resuming: {len(finished)} fork points already done",flush=True)
+    else:
+        path=run_folder("campaign")
+        save_json(path/"plan.json",plan)
+        manifest=path/"manifest.jsonl"
+    # Fork points are independent, so several can run at once. This changes only the
+    # order they run in. Each manifest line keeps its plan_row.
+    sem=asyncio.Semaphore(max(1,concurrency))
+    lock=asyncio.Lock()
+    done=[len(finished)]
+    async def run_row(ix,row):
+        async with sem:
+            collected={}
+            kinds=["sham","cut"]+((["sham2","up"] if include_up else ["sham2"]) if row["subset_extra"] else [])
+            for kind in kinds:
+                client=get_client(provider,model,seed=plan["seed_local_only"]+row["run_id"])
+                try:
+                    p=await fork_episode(client,provider,model,Path(row["base"]),
+                         row["period"],15,row["cutter"],kind,plan["seed_local_only"]+row["run_id"])
+                    collected[kind]=str(p.resolve())
+                finally:
+                    if hasattr(client,"close"): await client.close()
+            verify_pair(Path(row["base"]),Path(collected["sham"]),Path(collected["cut"]))
+            record={"plan_row":ix,**row,"branches":collected,"status":"COMPLETE"}
+            async with lock:
+                with manifest.open("a",encoding="utf-8") as f:
+                    f.write(json.dumps(record,sort_keys=True)+"\n")
+                done[0]+=1
+                print(f"Fork point {done[0]}/{len(selected)} done (plan row {ix})",flush=True)
+    await asyncio.gather(*(run_row(ix,row) for ix,row in enumerate(selected) if ix not in finished))
     actual_branch_count=sum(
         2+(1+int(include_up) if r["subset_extra"] else 0)
         for r in selected
@@ -138,6 +160,8 @@ def main():
     p.add_argument("--model")
     p.add_argument("--max-forks",type=int,default=None)
     p.add_argument("--execute-paid",action="store_true")
+    p.add_argument("--concurrency",type=int,default=1,help="Fork points run at once (each is independent)")
+    p.add_argument("--resume",type=Path,default=None,help="Campaign folder to continue after a crash")
     p.add_argument("--include-up",action="store_true",help="Also run the upward copy (dropped for scope in Amendment 1)")
     args=p.parse_args()
     if args.provider!="mock" and not args.execute_paid:
@@ -145,9 +169,10 @@ def main():
     bases=load_base_list(args.base_list)
     plan=make_plan(bases)
     model=args.model or DEFAULT_MODEL[args.provider]
-    out=asyncio.run(execute_plan(plan,args.provider,model,args.max_forks,args.include_up))
+    out=asyncio.run(execute_plan(plan,args.provider,model,args.max_forks,args.include_up,args.concurrency,args.resume))
     summary=summarize(plan,out/"manifest.jsonl")
-    save_json(out/"descriptive_summary.json",summary)
+    if not (out/"descriptive_summary.json").exists():
+        save_json(out/"descriptive_summary.json",summary)
     print(json.dumps({"campaign":str(out),"n_runs":summary["n_base_runs"],
                       "n_forks":summary["n_forks"],
                       "provider":summary["provider_classification"],
