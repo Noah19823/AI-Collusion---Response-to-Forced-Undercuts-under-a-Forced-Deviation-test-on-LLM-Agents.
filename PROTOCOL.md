@@ -253,4 +253,4 @@ The brief, the best-response calculations and the literature review were done be
 | Oct 25 | Amendment 1, A7: main model changed from Claude Haiku 4.5 to Claude Haiku 5.5. | Cost. About $47 vs about $5 for the full plan, with about $3 in credits. | No |
 | Oct 25 | Amendment 1, A8: Haiku 5.5 called without temperature, with thinking off and effort medium. Merged PR #2 (Amendment 1 analysis) and PR #3 (provider fixes, budget preflight). | The API rejects temperature for this model, and thinking would eat max_tokens and raise cost. | No. The only live attempt was rejected before any reply. |
 | | Pooled rho = ___ | Estimated from base runs before forks | No |
-| | Model used: ___ | Passed monopoly pretest | No |
+| Oct 25 | Model used: claude-haiku-5-5 (thinking off, effort medium). Pretest passed: 50 rounds, last-10 mean price 1.80 against the one-product monopoly price 1.802 (run pretest_6e383f022190, rounds sha256 1aaacdef…). | Passed monopoly pretest | No fork data. Pretest output only. |
