@@ -56,6 +56,15 @@ class CampaignIntegrityTests(unittest.TestCase):
         self.assertEqual(len(validate_plan(self.plan)),12)
         verify_pair(self.bases[0],self.sham,self.cut)
 
+    def test_unqualified_resume_and_parallelism_fail_before_io_or_provider(self):
+        for options in ({'resume':self.scratch/'untouched'}, {'concurrency':2}, {'concurrency':0}):
+            with self.subTest(options=options), patch('collusion.campaign.get_client') as provider, patch('collusion.campaign.run_folder') as create:
+                with self.assertRaises(ValueError):
+                    asyncio.run(execute_plan({},'mock',MODEL,**options))
+                provider.assert_not_called()
+                create.assert_not_called()
+        self.assertEqual(list(self.scratch.iterdir()),[])
+
     def test_duplicate_alias_and_copied_base_fail_before_provider_factory(self):
         alias=self.scratch/'alias'
         alias.symlink_to(self.bases[0],target_is_directory=True)

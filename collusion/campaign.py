@@ -49,7 +49,14 @@ def make_plan(bases:list[Path], seed:int=20261025, *, include_up:bool=False) -> 
     return plan
 
 async def execute_plan(plan:dict,provider:str,model:str,limit:int=None,include_up:bool=False,
-                       *,budget=None,resolved_model=None) -> Path:
+                       concurrency:int=1,resume:Path=None, *,budget=None,resolved_model=None) -> Path:
+    # Main's new resume implementation trusts row labels and replays partial rows.
+    # Do not touch old evidence or start requests until recovery has a validated
+    # branch/attempt/budget ledger. Parallel scheduling is likewise not qualified.
+    if type(concurrency) is not int or concurrency != 1:
+        raise ValueError('Parallel campaigns are not qualified; use concurrency=1')
+    if resume is not None:
+        raise ValueError('Resume is disabled until partial-branch and prior-budget recovery is validated; preserve the original campaign')
     # Fail BEFORE opening a campaign if the source cannot satisfy its claims.
     checked=validate_plan(plan,current_protocol=True)
     if limit is not None and (type(limit) is not int or not 1<=limit<=48):
@@ -169,6 +176,8 @@ def main():
     p.add_argument('--max-http-attempts',type=int)
     p.add_argument('--deadline-seconds',type=float)
     p.add_argument('--resolved-model')
+    p.add_argument('--concurrency',type=int,default=1,help='Only 1 is currently qualified')
+    p.add_argument('--resume',type=Path,help='Recognized but blocked until evidence-preserving recovery is validated')
     p.add_argument("--include-up",action="store_true",help="Also run the upward copy (dropped for scope in Amendment 1)")
     args=p.parse_args()
     if args.provider!="mock" and not args.execute_paid:
@@ -183,6 +192,7 @@ def main():
     plan=make_plan(bases,include_up=args.include_up)
     model=args.model or DEFAULT_MODEL[args.provider]
     out=asyncio.run(execute_plan(plan,args.provider,model,args.max_forks,args.include_up,
+                               concurrency=args.concurrency,resume=args.resume,
                                budget=budget,resolved_model=args.resolved_model))
     summary=summarize(plan,out/"manifest.jsonl")
     save_json(out/"descriptive_summary.json",summary)

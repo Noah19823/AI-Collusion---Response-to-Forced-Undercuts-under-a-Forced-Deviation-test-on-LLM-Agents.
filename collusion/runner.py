@@ -247,6 +247,7 @@ async def fork_episode(client,provider: str,model: str,base_dir: Path,
     if bm["model"]!=model or bm["provider"]!=provider:
         raise ValueError("Branch provider/model must match source")
     meta=common_meta(provider,model,"fork_"+kind,horizon,2,seed,client)
+    meta["base_protocol_sha256"]=bm["protocol_sha256"]
     require_same_population(bm,meta)
     if provider=='vllm' and (seed!=bm['seed_local_only'] or client.seed!=seed):
         raise ValueError('Fork must reuse the saved base seed')
