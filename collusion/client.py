@@ -121,14 +121,14 @@ class APIClient:
     async def close(self) -> None:
         await self.http.aclose()
     def build_request(self,prompt: str,agent: str) -> tuple[str,dict,dict]:
-        from .prompt import P1,SCHEMA
+        from .prompt import P1,SCHEMA,system_prompt
         if self.provider=="vllm":
             url=self.base_url+"/v1/chat/completions"
             headers={"Authorization":"Bearer "+self.key}
             payload={"model":self.model,"max_tokens":self.max_tokens,
                      "temperature":self.temperature,
                      "seed":call_seed(self.seed,agent,call_period(prompt)),
-                     "messages":[{"role":"system","content":SCHEMA+"\n"+P1},
+                     "messages":[{"role":"system","content":system_prompt()},
                                  {"role":"user","content":prompt}],
                      "response_format":{"type":"json_object"},
                      # Qwen3 models think by default; the protocol uses plain replies.
@@ -142,7 +142,7 @@ class APIClient:
             payload={"model":self.model,"max_tokens":self.max_tokens,
                      "temperature":self.temperature,
                      "thinking":{"type":"disabled"},
-                     "messages":[{"role":"system","content":SCHEMA+"\n"+P1},
+                     "messages":[{"role":"system","content":system_prompt()},
                                  {"role":"user","content":prompt}],
                      "response_format":{"type":"json_object"}}
             return url,headers,payload
@@ -150,7 +150,7 @@ class APIClient:
             url="https://api.anthropic.com/v1/messages"
             headers={"x-api-key":self.key,"anthropic-version":"2023-06-01"}
             payload={"model":self.model,"max_tokens":self.max_tokens,
-                     "system":SCHEMA+"\n"+P1,
+                     "system":system_prompt(),
                      "messages":[{"role":"user","content":prompt}]}
             if self.model.startswith("claude-haiku-5-5"):
                 # Haiku 5.5 takes no sampling parameters. Thinking is turned off so the
@@ -164,7 +164,7 @@ class APIClient:
             url="https://api.openai.com/v1/chat/completions"
             headers={"Authorization":"Bearer "+self.key}
             payload={"model":self.model,"max_completion_tokens":self.max_tokens,
-                     "messages":[{"role":"system","content":SCHEMA+"\n"+P1},
+                     "messages":[{"role":"system","content":system_prompt()},
                                  {"role":"user","content":prompt}],
                      "response_format":{"type":"json_object"}}
         return url,headers,payload

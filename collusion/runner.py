@@ -112,7 +112,8 @@ def common_meta(provider: str, model: str,kind: str, rounds: int, n_agents: int,
             "source_commit":"b210bfb0f8499de9d9710424d7570808e23a885a",
             "classification":"SYNTHETIC_SMOKE_ONLY" if provider=="mock" else "LIVE_MODEL",
             "no_model_seed_guarantee":provider not in ("mock","vllm"),
-            "per_call_seed":provider=="vllm"}
+            "per_call_seed":provider=="vllm",
+            "prompt_variant":os.environ.get("COLLUSION_PROMPT_VARIANT","main")}
 
 async def base_episode(client,provider: str,model: str,rounds: int,
                        *,mono: bool=False,seed: int=0) -> Path:
