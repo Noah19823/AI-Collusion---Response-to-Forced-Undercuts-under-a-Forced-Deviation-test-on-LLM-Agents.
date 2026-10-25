@@ -83,8 +83,13 @@ async def execute_plan(plan:dict,provider:str,model:str,limit:int=None,include_u
             f.write(json.dumps(record,sort_keys=True)+"\n")
         if (ix+1)%12==0:
             print(f"Validated {ix+1}/{len(selected)} matched fork points",flush=True)
+    actual_branch_count=sum(
+        2+(1+int(include_up) if r["subset_extra"] else 0)
+        for r in selected
+    )
     save_json(path/"completion.json",{"rows_complete":len(selected),
-              "branch_counts":sum(2+(2 if r["subset_extra"] else 0) for r in selected),
+              "branch_counts":actual_branch_count,
+              "include_up":include_up,
               "provider":provider,
               "classification":"SYNTHETIC_INTEGRATION" if provider=="mock" else "LIVE_MODEL",
               "manifest_sha256":digest(manifest.read_bytes())})
