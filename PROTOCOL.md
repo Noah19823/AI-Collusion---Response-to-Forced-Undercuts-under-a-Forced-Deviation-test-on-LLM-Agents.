@@ -24,6 +24,8 @@ x3klr007 built and tested the experiment code (PR #1) on a mock model and found 
 
 **A5. What G_H^enforced measures.** The recomputation in Section 8 keeps the cutter's actual later prices fixed and only swaps in the baseline for the rival. So it measures how the rival's prices directly changed the cutter's profit, not everything that would have happened if the rival had acted differently. The report says this.
 
+**A6. Scope reduced for time.** With no live data yet and under a day left, we cut the LLM part down to what the main claim needs. We keep Part 1, the pretest, the 12 base runs, the cut and no-cut copies on all 48 forks, the second no-cut copy on 12 forks, the three measures and the rho grid. We drop the upward copy (Tran and Yu already ran one, and x3klr007's tests show it doesn't separate punishers from agents that forecast more cuts), the two-coder say-versus-do 2 × 2, and any extra cut sizes. The validity check on the upward copy and the exploratory 2 × 2 prediction are not tested. G_H and G_H^enforced are still reported if they are ready, but they are secondary. We may show one fork's notes next to its prices as an example, and it will be labeled as an example, not as evidence. In the code, `collusion/campaign.py` now skips the upward copy unless `--include-up` is passed.
+
 **Added after the protocol, exploratory only.** PR #1 also includes synthetic checks showing that a punishing policy and a policy that forecasts further cuts can produce the same prices, and that whether a cut pays can flip between a 9.5% and a 10% cut for a threshold-type rival. These are labeled exploratory in the report. The confirmatory cut stays at 10%. We only run a 5% or 20% cut subset if there is time and budget left after the main runs, and that would also be exploratory.
 
 ---
@@ -243,5 +245,6 @@ The brief, the best-response calculations and the literature review were done be
 | Oct 24 | Brief and protocol rewritten in plainer language. No change to the design. | Readability. | No |
 | Oct 25 | Merged PR #1 (x3klr007): experiment runner, fork campaign, inference with abstention, tests. All 20 tests pass. | Implementation of this protocol, checked on a mock model only. | No |
 | Oct 25 | Amendment 1 (A1 to A5 at the top of this file): pretest target 1.80, P3 rewritten to compare conclusions, rho from shown two-decimal prices with a fixed rho grid if it can't be identified, narrower wording for negative PI_H^dyn and for G_H^enforced. | Problems found by x3klr007 while building and testing the code. | No |
+| Oct 25 | Amendment 1, A6: scope reduced. Upward copy, two-coder 2 × 2 and extra cut sizes dropped. Campaign skips the upward copy by default. | Time, with no live data yet. | No |
 | | Pooled rho = ___ | Estimated from base runs before forks | No |
 | | Model used: ___ | Passed monopoly pretest | No |

@@ -49,7 +49,7 @@ def make_plan(bases:list[Path], seed:int=20261025) -> dict:
             "seed_local_only":seed,"rows":candidates,
             "plan_digest":digest(candidates)}
 
-async def execute_plan(plan:dict,provider:str,model:str,limit:int=None) -> Path:
+async def execute_plan(plan:dict,provider:str,model:str,limit:int=None,include_up:bool=False) -> Path:
     # Fail BEFORE opening a campaign if the source cannot satisfy its claims.
     checked=set()
     for row in plan["rows"]:
@@ -68,7 +68,7 @@ async def execute_plan(plan:dict,provider:str,model:str,limit:int=None) -> Path:
     selected=plan["rows"] if limit is None else plan["rows"][:limit]
     for ix,row in enumerate(selected):
         collected={}
-        kinds=["sham","cut"]+(["sham2","up"] if row["subset_extra"] else [])
+        kinds=["sham","cut"]+((["sham2","up"] if include_up else ["sham2"]) if row["subset_extra"] else [])
         for kind in kinds:
             client=get_client(provider,model,seed=plan["seed_local_only"]+row["run_id"])
             try:
@@ -133,13 +133,14 @@ def main():
     p.add_argument("--model")
     p.add_argument("--max-forks",type=int,default=None)
     p.add_argument("--execute-paid",action="store_true")
+    p.add_argument("--include-up",action="store_true",help="Also run the upward copy (dropped for scope in Amendment 1)")
     args=p.parse_args()
     if args.provider!="mock" and not args.execute_paid:
         p.error("Paid calls disabled without --execute-paid")
     bases=load_base_list(args.base_list)
     plan=make_plan(bases)
     model=args.model or DEFAULT_MODEL[args.provider]
-    out=asyncio.run(execute_plan(plan,args.provider,model,args.max_forks))
+    out=asyncio.run(execute_plan(plan,args.provider,model,args.max_forks,args.include_up))
     summary=summarize(plan,out/"manifest.jsonl")
     save_json(out/"descriptive_summary.json",summary)
     print(json.dumps({"campaign":str(out),"n_runs":summary["n_base_runs"],

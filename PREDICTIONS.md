@@ -20,6 +20,8 @@ P3 above is replaced, because a sticky agent that doesn't punish already scores 
 
 If rho can't be identified from the prices the agent was shown, P2 and P3 aren't tested. We report the dynamic measure at rho = 0, 0.25, 0.5, 0.75, 0.9 and 0.95 instead. P1 and P4 are unchanged. A negative dynamic score is reported as pricing below the sticky, myopic non-punishing baseline, not as proof of punishment. See Amendment 1 in PROTOCOL.md.
 
+Under A6 (scope reduced for time), the upward-copy check below and the exploratory 2 × 2 prediction are not tested.
+
 ## Validity checks
 
 The second sham sets the noise floor that the cut-versus-sham gap is judged against. The upward copy shows no cut below the non-punishing baseline after a forced raise.
