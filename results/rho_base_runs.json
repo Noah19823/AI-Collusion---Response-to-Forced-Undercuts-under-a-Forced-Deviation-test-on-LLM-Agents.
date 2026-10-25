@@ -1,0 +1,20 @@
+{
+  "n_runs": 12,
+  "max_period": 75,
+  "pooled_rho": 0.9215871718895743,
+  "decision": "RHO_IDENTIFIED",
+  "per_run_rho": {
+    "logs/base_3e9d56f51912": 0.8838202984133142,
+    "logs/base_6615e7dbab60": 0.7793267673877129,
+    "logs/base_74acddde9970": 0.7594214517063604,
+    "logs/base_7ac744067cd3": 0.6167204290931823,
+    "logs/base_7f73c1e8957c": 0.9627363358496492,
+    "logs/base_84e85fc07558": 0.7913672627676699,
+    "logs/base_aa70a9cddc50": 0.9556088947595129,
+    "logs/base_c8facfe9a1b3": 0.8394952358619295,
+    "logs/base_dea5bd7a46ca": 0.487657325083724,
+    "logs/base_e68847c0cecd": 0.3541063804408483,
+    "logs/base_e9492b9aed20": 0.5518261333594544,
+    "logs/base_fba496b830e9": 0.9079964783577653
+  }
+}
