@@ -34,7 +34,7 @@ from .scripted import grid
 ROOT = Path(__file__).resolve().parents[1]
 LOGROOT = ROOT/"logs"
 ACTORS=("Firm A","Firm B")
-DEFAULT_MODEL={"anthropic":"claude-haiku-4-5-20251001","openai":"gpt-5-mini","mock":"synthetic-sticky-policy-v1"}
+DEFAULT_MODEL={"anthropic":"claude-haiku-5-5","openai":"gpt-5-mini","vllm":"Qwen/Qwen3-32B-FP8","mock":"synthetic-sticky-policy-v1"}
 
 def digest(item) -> str:
     if isinstance(item,bytes): binary=item
@@ -111,7 +111,8 @@ def common_meta(provider: str, model: str,kind: str, rounds: int, n_agents: int,
             "prompt_sha256":digest((P1+GENERAL_PROMPT+SCHEMA).encode()),
             "source_commit":"b210bfb0f8499de9d9710424d7570808e23a885a",
             "classification":"SYNTHETIC_SMOKE_ONLY" if provider=="mock" else "LIVE_MODEL",
-            "no_model_seed_guarantee":provider!="mock"}
+            "no_model_seed_guarantee":provider not in ("mock","vllm"),
+            "per_call_seed":provider=="vllm"}
 
 async def base_episode(client,provider: str,model: str,rounds: int,
                        *,mono: bool=False,seed: int=0) -> Path:
@@ -212,7 +213,7 @@ def script_grid() -> None:
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command",choices=("benchmark","scripted","base","pretest","fork"))
-    parser.add_argument("--provider",choices=("mock","anthropic","openai"),default="mock")
+    parser.add_argument("--provider",choices=("mock","anthropic","openai","vllm"),default="mock")
     parser.add_argument("--model",default=None)
     parser.add_argument("--rounds",type=int,default=150)
     parser.add_argument("--runs",type=int,default=1)

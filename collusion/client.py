@@ -1,6 +1,10 @@
-"""Experiment pricing clients. No API call without --provider anthropic/openai.
+"""Experiment pricing clients. No API call without --provider anthropic/openai/vllm.
 
-Only ANTHROPIC_API_KEY / OPENAI_API_KEY are read at runtime, never logged.
+Only ANTHROPIC_API_KEY / OPENAI_API_KEY / VLLM_API_KEY (plus VLLM_BASE_URL)
+are read at runtime, never logged. The vllm provider talks to an
+OpenAI-compatible vLLM server (for example one deployed with modal/vllm_server.py)
+and sends a per-call seed so that paired fork copies draw the same samples
+until the cut changes what an agent sees.
 The mock provider is for pipeline integrity testing and is NOT LLM evidence.
 """
 from __future__ import annotations
@@ -60,23 +64,54 @@ class MockClient:
                   "observations":""}
         return response,{"provider":self.provider,"model":self.model,"usage":{}}
 
+_ROUND_RE=re.compile(r"Round (\d+)")
+_THINK_RE=re.compile(r"<think>.*?</think>",re.S)
+
+def call_period(prompt: str) -> int:
+    """Period being priced, read from the prompt: one after the newest round shown."""
+    m=_ROUND_RE.search(prompt)
+    return int(m.group(1))+1 if m else 1
+
+def call_seed(base_seed: int,agent: str,period: int) -> int:
+    """Seed set by run, agent and period, so fork copies share draws until they diverge."""
+    import zlib
+    return (base_seed*1_000_003+zlib.crc32(agent.encode())*1009+period)%(2**31-1)
+
 class APIClient:
     def __init__(self,provider: str,model: str,temperature: float=.7,
-                 max_tokens: int=1200) -> None:
-        if provider not in ("anthropic","openai"):
-            raise ValueError("API provider must be anthropic or openai")
-        key_name="ANTHROPIC_API_KEY" if provider=="anthropic" else "OPENAI_API_KEY"
+                 max_tokens: int=1200,seed: int=0) -> None:
+        if provider not in ("anthropic","openai","vllm"):
+            raise ValueError("API provider must be anthropic, openai or vllm")
+        key_name={"anthropic":"ANTHROPIC_API_KEY","openai":"OPENAI_API_KEY",
+                  "vllm":"VLLM_API_KEY"}[provider]
         self.key=os.environ.get(key_name,"")
         if not self.key:
             raise RuntimeError(f"Missing {key_name}; no paid calls attempted")
+        self.base_url=""
+        if provider=="vllm":
+            self.base_url=os.environ.get("VLLM_BASE_URL","").rstrip("/")
+            if not self.base_url:
+                raise RuntimeError("Missing VLLM_BASE_URL (the Modal web endpoint URL)")
         self.provider, self.model = provider, model
-        self.temperature, self.max_tokens = temperature, max_tokens
+        self.temperature, self.max_tokens, self.seed = temperature, max_tokens, seed
         import httpx
         self.http=httpx.AsyncClient(timeout=120)
     async def close(self) -> None:
         await self.http.aclose()
-    async def choose(self,prompt: str,agent: str) -> tuple[dict,dict]:
+    def build_request(self,prompt: str,agent: str) -> tuple[str,dict,dict]:
         from .prompt import P1,SCHEMA
+        if self.provider=="vllm":
+            url=self.base_url+"/v1/chat/completions"
+            headers={"Authorization":"Bearer "+self.key}
+            payload={"model":self.model,"max_tokens":self.max_tokens,
+                     "temperature":self.temperature,
+                     "seed":call_seed(self.seed,agent,call_period(prompt)),
+                     "messages":[{"role":"system","content":SCHEMA+"\n"+P1},
+                                 {"role":"user","content":prompt}],
+                     "response_format":{"type":"json_object"},
+                     # Qwen3 models think by default; the protocol uses plain replies.
+                     "chat_template_kwargs":{"enable_thinking":False}}
+            return url,headers,payload
         if self.provider=="anthropic":
             url="https://api.anthropic.com/v1/messages"
             headers={"x-api-key":self.key,"anthropic-version":"2023-06-01"}
@@ -91,6 +126,9 @@ class APIClient:
                      "messages":[{"role":"system","content":SCHEMA+"\n"+P1},
                                  {"role":"user","content":prompt}],
                      "response_format":{"type":"json_object"}}
+        return url,headers,payload
+    async def choose(self,prompt: str,agent: str) -> tuple[dict,dict]:
+        url,headers,payload=self.build_request(prompt,agent)
         # Do not log payload headers/credential. Only safe error summaries.
         for attempt in range(3):
             try:
@@ -105,10 +143,13 @@ class APIClient:
                     content="\n".join(b.get("text","") for b in blocks if b.get("type")=="text")
                     usage=data.get("usage",{})
                 else:
-                    content=data["choices"][0]["message"]["content"]
+                    content=data["choices"][0]["message"]["content"] or ""
+                    content=_THINK_RE.sub("",content).strip()
                     usage=data.get("usage",{})
-                return validate_reply(content),{"provider":self.provider,"model":self.model,
-                                               "usage":usage,"retry_attempts":attempt}
+                meta={"provider":self.provider,"model":self.model,
+                      "usage":usage,"retry_attempts":attempt}
+                if "seed" in payload: meta["call_seed"]=payload["seed"]
+                return validate_reply(content),meta
             except Exception as exc:
                 if attempt == 2:
                     raise RuntimeError(f"Model request failed; provider={self.provider},"
@@ -118,4 +159,4 @@ class APIClient:
 
 def get_client(provider: str,model: str, *, seed: int=0):
     if provider=="mock": return MockClient(seed=seed)
-    return APIClient(provider,model)
+    return APIClient(provider,model,seed=seed)

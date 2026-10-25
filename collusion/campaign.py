@@ -129,7 +129,7 @@ def summarize(plan:dict,manifest:Path) -> dict:
 def main():
     p=argparse.ArgumentParser()
     p.add_argument("--base-list",required=True,type=Path)
-    p.add_argument("--provider",choices=("mock","anthropic","openai"),default="mock")
+    p.add_argument("--provider",choices=("mock","anthropic","openai","vllm"),default="mock")
     p.add_argument("--model")
     p.add_argument("--max-forks",type=int,default=None)
     p.add_argument("--execute-paid",action="store_true")
