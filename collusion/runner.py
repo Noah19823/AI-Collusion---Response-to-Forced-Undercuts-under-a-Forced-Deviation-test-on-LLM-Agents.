@@ -181,6 +181,55 @@ def record_failure(path: Path, exc: BaseException, period: int) -> None:
               'period':period,'exception_type':type(exc).__name__,
               'no_completion_marker':True,**finish_evidence(path,failure=True)})
 
+def verify_pretest_records(path: Path, meta: dict, completion: dict) -> None:
+    """Verify sealed primitive evidence before admitting a solo pretest.
+
+    Protocol compatibility is checked separately by the caller. This check
+    never rewrites old seals and does not authenticate a provider's identity.
+    """
+    raw=(path/"rounds.jsonl").read_bytes()
+    if digest(raw)!=completion.get("rounds_sha256"):
+        raise ValueError("Pretest rounds checksum mismatch")
+    rows=[json.loads(line) for line in raw.splitlines() if line.strip()]
+    if (meta["kind"]!="pretest" or meta["n_agents"]!=1 or len(rows)<50
+            or len(rows)!=meta["planned_rounds"]
+            or len(rows)!=completion["completed_rounds"]):
+        raise ValueError("Pretest must contain all planned solo rounds (at least 50)")
+    if meta["market"]!=Market().__dict__:
+        raise ValueError("Pretest market differs from current experiment")
+    if meta["prompt_sha256"]!=digest((P1+GENERAL_PROMPT+SCHEMA).encode()):
+        raise ValueError("Pretest prompt template differs from current experiment")
+    for i,row in enumerate(rows):
+        if (row["period"]!=i+1 or set(row["actors"])!={ACTORS[0]}
+                or row["intervention"] is not None):
+            raise ValueError("Pretest is not a contiguous unmodified solo history")
+        actor=row["actors"][ACTORS[0]]
+        price=actor["executed_price"]
+        if (isinstance(price,bool) or not isinstance(price,(int,float))
+                or not math.isfinite(price) or not 0<price<20
+                or price!=actor["model_chosen_price"]
+                or price!=actor["response"]["chosen_price"]):
+            raise ValueError("Pretest price/proposal mismatch")
+        if any(actor["model_meta"][k]!=meta[k] for k in ("provider","model")):
+            raise ValueError("Pretest provider/model record mismatch")
+        prompt=build_prompt(rows[:i],ACTORS[0])
+        if actor["prompt"]!=prompt or actor["prompt_sha256"]!=digest(prompt.encode()):
+            raise ValueError("Pretest prompt/history mismatch")
+        derived=copy.deepcopy(row)
+        recalculate_round(derived,Market())
+        if (row["market_prices"]!=derived["market_prices"]
+                or not math.isclose(row["total_profit"],derived["total_profit"],abs_tol=1e-8,rel_tol=1e-12)
+                or any(not math.isclose(actor[k],derived["actors"][ACTORS[0]][k],abs_tol=1e-8,rel_tol=1e-12)
+                       for k in ("quantity","profit"))
+                or actor["market_data"]!=derived["actors"][ACTORS[0]]["market_data"]):
+            raise ValueError("Pretest market outcomes do not match primitive prices")
+    mean=sum(r["actors"][ACTORS[0]]["executed_price"] for r in rows[-10:])/10
+    if (completion["last10_mean"]!={ACTORS[0]:mean}
+            or completion["final_prices"]!=rows[-1]["market_prices"]):
+        raise ValueError("Pretest summary does not match primitive prices")
+    if abs(mean-Market().joint_monopoly(1))>=.12:
+        raise ValueError("Primitive pretest prices fail the monopoly criterion")
+
 async def base_episode(client,provider: str,model: str,rounds: int,
                        *,mono: bool=False,seed: int=0) -> Path:
     agents=ACTORS[:1] if mono else ACTORS
@@ -352,6 +401,7 @@ def main():
             parser.error("Pretest does not qualify this model and provider")
         try:
             require_compatible_protocol(pre_meta['protocol_sha256'],ROOT,source='Pretest')
+            verify_pretest_records(args.pretest_dir,pre_meta,pre_done)
             population_key(pre_meta)
             if pre_meta.get('n_agents')!=1:
                 raise ValueError('Pretest must contain exactly one agent')
@@ -359,7 +409,7 @@ def main():
             validate_history(pre_rows,prefix=[],agents=ACTORS[:1],meta=pre_meta)
             validate_attempt_evidence(args.pretest_dir,pre_meta,pre_done,pre_rows)
         except (OSError,ValueError,KeyError,TypeError) as exc:
-            parser.error(str(exc))
+            parser.error(f"Pretest primitive evidence does not qualify: {exc}")
     async def do_run():
         paths=[]
         for i in range(args.runs if args.command in ("base","pretest") else 1):
