@@ -56,6 +56,24 @@ class VLLMClientTests(unittest.TestCase):
         self.assertEqual(meta["call_seed"], seen["body"]["seed"])
         self.assertEqual(meta["provider"], "vllm")
 
+    def test_deepseek_request_and_served_model(self):
+        import asyncio, json, httpx
+        with mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": "ds-key"}):
+            client = get_client("deepseek", "deepseek-chat", seed=1)
+        url, headers, payload = client.build_request("Round 3\nx", "Firm A")
+        self.assertEqual(url, "https://api.deepseek.com/chat/completions")
+        self.assertNotIn("chat_template_kwargs", payload)
+        self.assertNotIn("seed", payload)
+
+        def handler(request):
+            reply = '{"chosen_price": 1.8, "plans": "", "insights": "", "observations": ""}'
+            return httpx.Response(200, json={"model": "deepseek-v3.1",
+                                             "choices": [{"message": {"content": reply}}]})
+        client.http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        reply, meta = asyncio.run(client.choose("Round 3\nx", "Firm A"))
+        self.assertEqual(reply["chosen_price"], 1.8)
+        self.assertEqual(meta["served_model"], "deepseek-v3.1")
+
     def test_missing_base_url_refuses(self):
         with mock.patch.dict(os.environ, {"VLLM_BASE_URL": ""}):
             with self.assertRaises(RuntimeError):

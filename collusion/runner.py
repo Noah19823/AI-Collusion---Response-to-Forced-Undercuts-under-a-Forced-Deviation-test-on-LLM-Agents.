@@ -34,7 +34,7 @@ from .scripted import grid
 ROOT = Path(__file__).resolve().parents[1]
 LOGROOT = ROOT/"logs"
 ACTORS=("Firm A","Firm B")
-DEFAULT_MODEL={"anthropic":"claude-haiku-5-5","openai":"gpt-5-mini","vllm":"Qwen/Qwen3-32B-FP8","mock":"synthetic-sticky-policy-v1"}
+DEFAULT_MODEL={"anthropic":"claude-haiku-5-5","openai":"gpt-5-mini","vllm":"Qwen/Qwen3-32B-FP8","deepseek":"deepseek-chat","mock":"synthetic-sticky-policy-v1"}
 
 def digest(item) -> str:
     if isinstance(item,bytes): binary=item
@@ -213,7 +213,7 @@ def script_grid() -> None:
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command",choices=("benchmark","scripted","base","pretest","fork"))
-    parser.add_argument("--provider",choices=("mock","anthropic","openai","vllm"),default="mock")
+    parser.add_argument("--provider",choices=("mock","anthropic","openai","vllm","deepseek"),default="mock")
     parser.add_argument("--model",default=None)
     parser.add_argument("--rounds",type=int,default=150)
     parser.add_argument("--runs",type=int,default=1)

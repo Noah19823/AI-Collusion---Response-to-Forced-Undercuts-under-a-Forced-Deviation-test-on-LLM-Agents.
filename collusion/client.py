@@ -80,10 +80,10 @@ def call_seed(base_seed: int,agent: str,period: int) -> int:
 class APIClient:
     def __init__(self,provider: str,model: str,temperature: float=.7,
                  max_tokens: int=1200,seed: int=0) -> None:
-        if provider not in ("anthropic","openai","vllm"):
-            raise ValueError("API provider must be anthropic, openai or vllm")
+        if provider not in ("anthropic","openai","vllm","deepseek"):
+            raise ValueError("API provider must be anthropic, openai, vllm or deepseek")
         key_name={"anthropic":"ANTHROPIC_API_KEY","openai":"OPENAI_API_KEY",
-                  "vllm":"VLLM_API_KEY"}[provider]
+                  "vllm":"VLLM_API_KEY","deepseek":"DEEPSEEK_API_KEY"}[provider]
         self.key=os.environ.get(key_name,"")
         if not self.key:
             raise RuntimeError(f"Missing {key_name}; no paid calls attempted")
@@ -111,6 +111,17 @@ class APIClient:
                      "response_format":{"type":"json_object"},
                      # Qwen3 models think by default; the protocol uses plain replies.
                      "chat_template_kwargs":{"enable_thinking":False}}
+            return url,headers,payload
+        if self.provider=="deepseek":
+            # OpenAI-compatible; no per-call seed support is assumed, so fork copies
+            # can drift like other hosted APIs and the second no-cut copy measures it.
+            url="https://api.deepseek.com/chat/completions"
+            headers={"Authorization":"Bearer "+self.key}
+            payload={"model":self.model,"max_tokens":self.max_tokens,
+                     "temperature":self.temperature,
+                     "messages":[{"role":"system","content":SCHEMA+"\n"+P1},
+                                 {"role":"user","content":prompt}],
+                     "response_format":{"type":"json_object"}}
             return url,headers,payload
         if self.provider=="anthropic":
             url="https://api.anthropic.com/v1/messages"
@@ -148,6 +159,9 @@ class APIClient:
                     usage=data.get("usage",{})
                 meta={"provider":self.provider,"model":self.model,
                       "usage":usage,"retry_attempts":attempt}
+                if self.provider!="anthropic" and data.get("model"):
+                    # The model version the server says it actually used.
+                    meta["served_model"]=data["model"]
                 if "seed" in payload: meta["call_seed"]=payload["seed"]
                 return validate_reply(content),meta
             except Exception as exc:

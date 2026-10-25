@@ -47,3 +47,15 @@ Step 4: primitive log recomputation, cluster-bootstrap rho re-estimation, and ab
 The agent's original simultaneous period-t choices are reused in both branches; only the specified executed price and subsequent market history are modified. All generated logs reside in ignored logs/ and include explicit provider/synthetic labels.
 
 Scientific scope: negative PI_dyn identifies a deviation from a particular sticky-myopic best-response null. It is not proof of intentional punishment. The forecasting-based out-of-model test illustrates this limitation.
+
+## Running on DeepSeek
+
+The harness has a `deepseek` provider that calls DeepSeek's OpenAI-compatible API. Whoever has the key sets it only in their own terminal:
+
+    export DEEPSEEK_API_KEY=<key>
+
+Then use the same commands with `--provider deepseek --model deepseek-chat`, pretest first:
+
+    python3 -m collusion.runner pretest --provider deepseek --model deepseek-chat --rounds 50 --execute-paid
+
+`deepseek-chat` points at whatever DeepSeek currently serves under that name, so every call logs `served_model` with the version the server reports. Put that version in the report. DeepSeek isn't assumed to honour seeds, so the two copies of a fork can drift apart like any hosted API, and the second no-cut copy measures how much. Garra (2026) found DeepSeek-V3 failed the monopoly pretest and DeepSeek-V3.1 passed, so post the pretest result before going further.
