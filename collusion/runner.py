@@ -29,6 +29,7 @@ from pathlib import Path
 from .client import get_client
 from .market import Market
 from .prompt import build_prompt, P1, GENERAL_PROMPT, SCHEMA
+from .protocol_check import check_recorded_protocol, current_protocol_digest, is_current
 from .scripted import grid
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -103,11 +104,10 @@ async def one_round(history: list[dict], client, market: Market, period: int,
     return record
 
 def common_meta(provider: str, model: str,kind: str, rounds: int, n_agents: int,seed: int):
-    protocol=(ROOT/"PROTOCOL.md").read_bytes()
     return {"kind":kind,"provider":provider,"model":model,"seed_local_only":seed,
             "planned_rounds":rounds,"n_agents":n_agents,
             "market":Market().__dict__,
-            "protocol_sha256":digest(protocol),
+            "protocol_sha256":current_protocol_digest(),
             "prompt_sha256":digest((P1+GENERAL_PROMPT+SCHEMA).encode()),
             "source_commit":"b210bfb0f8499de9d9710424d7570808e23a885a",
             "classification":"SYNTHETIC_SMOKE_ONLY" if provider=="mock" else "LIVE_MODEL",
@@ -173,8 +173,7 @@ async def fork_episode(client,provider: str,model: str,base_dir: Path,
         raise ValueError("Must fork a duopoly")
     if bm["model"]!=model or bm["provider"]!=provider:
         raise ValueError("Branch provider/model must match source")
-    if bm["protocol_sha256"]!=digest((ROOT/"PROTOCOL.md").read_bytes()):
-        raise ValueError("Source protocol digest differs; do not silently mix versions")
+    check_recorded_protocol(bm["protocol_sha256"],f"source base {base_dir}")
     base=load_jsonl(base_dir/"rounds.jsonl")
     if len(base)<period: raise ValueError("Missing base source checkpoint")
     prefix=copy.deepcopy(base[:period-1])
@@ -248,7 +247,7 @@ def main():
              or pre_meta["model"]!=model or pre_meta["planned_rounds"]<50
              or not pre_done.get("pretest_near_one_product_monopoly",False)):
             parser.error("Pretest does not qualify this model and provider")
-        if pre_meta["protocol_sha256"]!=digest((ROOT/"PROTOCOL.md").read_bytes()):
+        if not is_current(pre_meta["protocol_sha256"]):
             # Logging amendments changes PROTOCOL.md, so the hash can't be required to
             # match. Both hashes are kept in each run's meta.json.
             print("NOTE: PROTOCOL.md changed since the pretest (amendments logged).",flush=True)
