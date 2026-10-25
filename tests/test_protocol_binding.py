@@ -92,7 +92,18 @@ class ProtocolHistoryTests(unittest.TestCase):
         before=subprocess.check_output(['git','show','f9b9abf:PROTOCOL.md'],cwd=root)
         after=subprocess.check_output(['git','show','6540f2f:PROTOCOL.md'],cwd=root)
         self.assertEqual(immutable_protocol_bytes(before),immutable_protocol_bytes(after))
-        self.assertNotEqual(immutable_protocol_bytes(before),immutable_protocol_bytes((root/'PROTOCOL.md').read_bytes()))
+        amended=subprocess.check_output(['git','show','3d93081:PROTOCOL.md'],cwd=root)
+        self.assertNotEqual(immutable_protocol_bytes(before),immutable_protocol_bytes(amended))
+
+    def test_upstream_narrative_rho_row_does_not_silently_widen_result_grammar(self):
+        root=Path(__file__).resolve().parents[1]
+        narrative=subprocess.check_output(['git','show','e7c520d:PROTOCOL.md'],cwd=root)
+        with self.assertRaisesRegex(ValueError,'Unrecognized result-row prose'):
+            immutable_protocol_bytes(narrative)
+        # Exact current bytes remain identifiable; this is not historical admission.
+        self.p.write_bytes(narrative)
+        self.assertTrue(protocol_compatible(hashlib.sha256(narrative).hexdigest(),self.root))
+        self.assertFalse(protocol_compatible(self.original_hash,self.root))
 
     def test_undeclared_log_amendment_is_rejected(self):
         altered = AFTER.replace(
