@@ -28,6 +28,8 @@ x3klr007 built and tested the experiment code (PR #1) on a mock model and found 
 
 **A7. Model changed for cost.** The main model is now Claude Haiku 5.5 (`claude-haiku-5-5`) instead of Haiku 4.5. At about 3,500 prompt tokens and 600 output tokens per call, the full plan costs about $47 on Haiku 4.5 and about $5 on Haiku 5.5, and the team has about $3 in credits. Haiku 5.5 is also from Anthropic and was not tested by Tran and Yu. Everything else stays the same. Changed before any live model calls.
 
+**A8. How Haiku 5.5 is called.** Haiku 5.5 doesn't accept `temperature`, `top_p` or `top_k`, so the protocol's pinned temperature can't be used and the model runs at its own default sampling. Its thinking is turned off (`thinking: disabled`) and effort is left at its default of medium, so the agent answers directly like the other providers in the harness, replies fit in `max_tokens`, and cost stays near the A7 estimate. A first pretest attempt was rejected by the API with HTTP 400 before any reply, because the request still sent `temperature`. No model output was produced or seen.
+
 **Added after the protocol, exploratory only.** PR #1 also includes synthetic checks showing that a punishing policy and a policy that forecasts further cuts can produce the same prices, and that whether a cut pays can flip between a 9.5% and a 10% cut for a threshold-type rival. These are labeled exploratory in the report. The confirmatory cut stays at 10%. We only run a 5% or 20% cut subset if there is time and budget left after the main runs, and that would also be exploratory.
 
 ---
@@ -249,5 +251,6 @@ The brief, the best-response calculations and the literature review were done be
 | Oct 25 | Amendment 1 (A1 to A5 at the top of this file): pretest target 1.80, P3 rewritten to compare conclusions, rho from shown two-decimal prices with a fixed rho grid if it can't be identified, narrower wording for negative PI_H^dyn and for G_H^enforced. | Problems found by x3klr007 while building and testing the code. | No |
 | Oct 25 | Amendment 1, A6: scope reduced. Upward copy, two-coder 2 × 2 and extra cut sizes dropped. Campaign skips the upward copy by default. | Time, with no live data yet. | No |
 | Oct 25 | Amendment 1, A7: main model changed from Claude Haiku 4.5 to Claude Haiku 5.5. | Cost. About $47 vs about $5 for the full plan, with about $3 in credits. | No |
+| Oct 25 | Amendment 1, A8: Haiku 5.5 called without temperature, with thinking off and effort medium. Merged PR #2 (Amendment 1 analysis) and PR #3 (provider fixes, budget preflight). | The API rejects temperature for this model, and thinking would eat max_tokens and raise cost. | No. The only live attempt was rejected before any reply. |
 | | Pooled rho = ___ | Estimated from base runs before forks | No |
 | | Model used: ___ | Passed monopoly pretest | No |
