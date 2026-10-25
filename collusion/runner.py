@@ -33,7 +33,7 @@ from .prompt import build_prompt, P1, GENERAL_PROMPT, SCHEMA
 from .scripted import grid
 from .protocol_binding import require_compatible_protocol
 from .records import (source_provenance, require_same_population, validate_base,
-                      population_key,validate_history,validate_attempt_evidence)
+                      population_key,validate_history,validate_attempt_evidence,require_unfailed)
 
 ROOT = Path(__file__).resolve().parents[1]
 LOGROOT = ROOT/"logs"
@@ -46,14 +46,25 @@ def digest(item) -> str:
     return hashlib.sha256(binary).hexdigest()
 
 def save_json(path: Path, obj) -> None:
-    with path.open("x",encoding="utf-8") as f:
+    # A completion becomes visible only after its bytes and census receipt are
+    # durable. Failed publication leaves the pending bytes as evidence.
+    staged=path.with_name('completion.pending.json') if path.name=='completion.json' else path
+    with staged.open("x",encoding="utf-8") as f:
         json.dump(obj,f,indent=2,ensure_ascii=False)
         f.write("\n")
         f.flush()
         os.fsync(f.fileno())
     if path.name in ('completion.json','failure.json') and path.parent.parent.resolve()==LOGROOT.resolve():
         append_event(LOGROOT/'attempt_census.jsonl',{'at_utc':utc_now(),'event':path.stem,
-                     'run':str(path.parent.resolve()),'record_sha256':digest(path.read_bytes())})
+                     'run':str(path.parent.resolve()),'record_sha256':digest(staged.read_bytes()),
+                     'publication':'PREPARED_REQUIRES_COMPLETION_FILE' if path.name=='completion.json' else 'FAILURE_LATCH'})
+    if staged!=path:
+        os.link(staged,path)  # Exclusive atomic publication; never overwrite.
+        staged.unlink()
+        if os.name=='posix':
+            directory=os.open(path.parent,os.O_RDONLY|os.O_DIRECTORY)
+            try:os.fsync(directory)
+            finally:os.close(directory)
 
 def load_jsonl(path: Path) -> list[dict]:
     with path.open(encoding="utf-8") as f:
@@ -179,7 +190,7 @@ def finish_evidence(path: Path, *, failure:bool=False) -> dict:
 def record_failure(path: Path, exc: BaseException, period: int) -> None:
     save_json(path/'failure.json',{'status':'FAILED_OR_INTERRUPTED','at_utc':utc_now(),
               'period':period,'exception_type':type(exc).__name__,
-              'no_completion_marker':True,**finish_evidence(path,failure=True)})
+              'no_completion_marker':not (path/'completion.json').exists(),**finish_evidence(path,failure=True)})
 
 def verify_pretest_records(path: Path, meta: dict, completion: dict) -> None:
     """Verify sealed primitive evidence before admitting a solo pretest.
@@ -187,6 +198,7 @@ def verify_pretest_records(path: Path, meta: dict, completion: dict) -> None:
     Protocol compatibility is checked separately by the caller. This check
     never rewrites old seals and does not authenticate a provider's identity.
     """
+    require_unfailed(path)
     raw=(path/"rounds.jsonl").read_bytes()
     if digest(raw)!=completion.get("rounds_sha256"):
         raise ValueError("Pretest rounds checksum mismatch")
@@ -332,13 +344,13 @@ async def fork_episode(client,provider: str,model: str,base_dir: Path,
             row=await one_round(rounds,client,Market(),t,ACTORS,evidence_path=path)
             rounds.append(row)
             append_round(path/"continuation.jsonl",row)
+        comp={"complete":True,"period":period,"through_period":period+horizon,"kind":kind,
+              "prefix_sha256":meta["prefix_sha256"],
+              "records_sha256":digest((path/"continuation.jsonl").read_bytes()),**finish_evidence(path)}
+        save_json(path/"completion.json",comp)
     except BaseException as exc:
         record_failure(path,exc,t)
         raise
-    comp={"complete":True,"period":period,"through_period":period+horizon,"kind":kind,
-          "prefix_sha256":meta["prefix_sha256"],
-          "records_sha256":digest((path/"continuation.jsonl").read_bytes()),**finish_evidence(path)}
-    save_json(path/"completion.json",comp)
     return path
 
 def script_grid() -> None:

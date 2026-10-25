@@ -1,6 +1,6 @@
 # Implementation corrections and unaccepted methodology proposals
 
-This change addresses the independent audit of main `3d93081763f782c5a3672b3609184d3c42c9fcc5`. It does not authorize live collection or establish a punishment result. `PROTOCOL.md`, `PREDICTIONS.md`, original logs and original summaries are unchanged.
+This change addresses the independent audit of main `3d93081763f782c5a3672b3609184d3c42c9fcc5` and is reconciled with main `5a127a88c9497eb087297ba816fe67476239396e`. It does not authorize live collection or establish a punishment result. The upstream protocol history is retained; this branch adds no edits to `PROTOCOL.md` or `PREDICTIONS.md`. Original logs and original summaries are unchanged.
 
 ## Implemented admission and evidence corrections
 
@@ -32,7 +32,15 @@ Use `python3 -m collusion.preflight_budget --attempt-log /path/to/new/attempts.j
 
 The primary campaign analysis entry point is `collusion.amendment_analysis`, not the older descriptive `collusion.inference`. Reports preserve all six A3 fixed-rho values. Failure of the new conservative interval certificate means “not established,” not evidence that a sign reversal occurred.
 
-PR #5 remains the separate correction that authenticates raw pretest rounds and recomputes the monopoly qualification and summary. This PR additionally validates the pretest's call evidence/configuration and must be reviewed in composition with #5. It overlaps PR #4's protocol-binding integration, with stricter result-row syntax; the PRs should not be merged blindly or treated as independent approvals of A10.
+PR #5 is now integrated into this branch: raw pretest rounds, monopoly qualification, summary, call evidence and configuration are checked together. PR #4 overlaps this branch with a less restrictive protocol-result grammar; PR #6 admits historical A10/retry cohorts through an allowlist. These alternatives must not be treated as independent approvals of the same policy.
+
+## Independent review corrections, 25 October 2026
+
+A separate fresh-context reviewer reproduced four implementation defects on both the original PR #7 commit and its PR #5 composition. The corrections stop retries after evidence-storage errors, publish completion only after durable preparation and census recording, reject any episode or campaign with a failure latch, recompute schema violations from raw HTTP content, and detect canonical duplicate primitives plus reused live call/attempt/provider-response identities across bases and branch continuations. Intentionally copied fork source rounds are excluded from the continuation identity census. These identity checks detect demonstrated reuse; they do not authenticate the provider or prove statistical independence.
+
+A storage failure may make a received response unavailable. The collector now stops, retains whatever evidence was persisted and marks the attempt unfinished/usage unknown; it cannot promise recovery from failed storage. A pending completion file is never a completion seal. The root census records completion preparation; admission also requires the published completion file and absence of a failure latch. POSIX directory metadata is fsynced; no Windows runtime verification is claimed.
+
+Main `5a127a8` introduced resumption that trusted manifest row labels and could replay completed branches inside a partial row, plus parallel execution with fail-fast task collection. Those paths are explicitly unavailable here: `--resume` and `--concurrency` values other than 1 stop before campaign creation or provider construction. Evidence-preserving recovery needs implementation and validation of partial-branch ownership, existing attempts and prior budgets. Parallel scheduling also needs prospective scientific qualification. Neither restriction changes or replays an existing campaign. Historical protocol transitions remain blocked rather than becoming approved merely because main recorded them.
 
 ## Methodology proposals — NOT ACCEPTED OR EXECUTED
 

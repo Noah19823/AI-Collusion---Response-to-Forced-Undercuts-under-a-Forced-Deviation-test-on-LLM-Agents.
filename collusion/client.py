@@ -24,7 +24,7 @@ from urllib.parse import urlsplit
 from typing import Any
 
 from .market import Market
-from .journal import AttemptJournal, ExecutionBudget, ExecutionLimit
+from .journal import AttemptJournal, ExecutionBudget, ExecutionLimit,EvidencePersistenceError
 
 class NonRetryableProviderResponse(RuntimeError):
     """Fail fast when repeating a request cannot repair the provider error."""
@@ -47,6 +47,14 @@ def validate_reply(raw: str) -> dict:
         "insights": str(item.get("insights","")),
         "observations": str(item.get("observations",""))
     }
+
+def reply_schema_violations(raw: str) -> list[str]:
+    """Derive diagnostics from the original reply, never copied annotations."""
+    original=json.loads(raw.strip())
+    issues=[key for key in ('plans','insights','observations') if not isinstance(original.get(key),str)]
+    if not isinstance(original.get('chosen_price'),(int,float)) or isinstance(original.get('chosen_price'),bool):
+        issues.append('chosen_price')
+    return issues
 
 class MockClient:
     provider = "mock"
@@ -147,6 +155,15 @@ class APIClient:
         self.journal=AttemptJournal(path/'attempts.jsonl',secrets=(self.key,))
         self.episode_context={"episode":str(path.resolve()),**context}
 
+    def _record_attempt(self,event: str, **fields) -> None:
+        try:
+            self.journal.write(event,**fields)
+        except (OSError,ValueError,TypeError) as exc:
+            # Stop future requests sharing this budget, including sibling retries.
+            # Already received responses may still be persisted by their owners.
+            self.budget.halt()
+            raise EvidencePersistenceError('Attempt evidence could not be persisted') from exc
+
     def experiment_config(self) -> dict:
         url,_,payload=self.build_request('', 'Firm A', period=1)
         return {"provider":self.provider,"model":self.model,
@@ -223,7 +240,7 @@ class APIClient:
             fields={**context,"attempt_id":attempt_id,"attempt_index":attempt}
             # Reservation and durable request evidence precede the HTTP call.
             ordinal=self.budget.reserve()
-            self.journal.write('request_started',**fields,global_request_number=ordinal,
+            self._record_attempt('request_started',**fields,global_request_number=ordinal,
                 request_sha256=request_hash,request=payload,request_url=url,
                 api_version=headers.get('anthropic-version'),effective_config=self.experiment_config())
             started=time.monotonic()
@@ -239,7 +256,7 @@ class APIClient:
                 except ValueError:
                     data=None
                 usage=data.get('usage') if isinstance(data,dict) else None
-                self.journal.write('response_received',**fields,http_status=resp.status_code,
+                self._record_attempt('response_received',**fields,http_status=resp.status_code,
                     provider_response_id=data.get('id') if isinstance(data,dict) else None,
                     served_model=data.get('model') if isinstance(data,dict) else None,
                     usage=usage,retry_after=resp.headers.get('retry-after'),
@@ -259,7 +276,7 @@ class APIClient:
                         except (ValueError,TypeError,OverflowError):
                             wait=min(60,5*2**attempt)
                     delay=max(1.0,wait)+random.uniform(0,2)
-                    self.journal.write('attempt_finished',**fields,status='retryable_http',
+                    self._record_attempt('attempt_finished',**fields,status='retryable_http',
                         retry_delay_seconds=delay,elapsed_seconds=time.monotonic()-started)
                     ended=True
                     await self._wait_before_retry(delay,fields)
@@ -301,31 +318,34 @@ class APIClient:
                              "provider_response_id":data.get("id"),
                              "stop_reason":stop})
                 reply=validate_reply(content)
-                original=json.loads(content.strip())
                 # Diagnose the legacy normalization without silently changing
                 # its retry/selection policy. Admission rejects these warnings.
-                issues=[key for key in ('plans','insights','observations') if not isinstance(original.get(key),str)]
-                if not isinstance(original.get('chosen_price'),(int,float)) or isinstance(original.get('chosen_price'),bool):
-                    issues.append('chosen_price')
+                issues=reply_schema_violations(content)
                 meta['reply_schema_violations']=issues
-                self.journal.write('attempt_finished',**fields,status='accepted',
+                self._record_attempt('attempt_finished',**fields,status='accepted',
                     reply_schema_violations=issues,elapsed_seconds=time.monotonic()-started)
                 ended=True
                 return reply,meta
+            except EvidencePersistenceError:
+                # Evidence persistence is not a model/transport retry. A retry
+                # could spend again after losing the response just received.
+                # Leave this attempt unfinished and fail the owning episode.
+                ended=True
+                raise
             except (ProviderRejected,ExecutionLimit) as exc:
                 if not ended:
-                    self.journal.write('attempt_finished',**fields,status='provider_rejected_or_limit',
+                    self._record_attempt('attempt_finished',**fields,status='provider_rejected_or_limit',
                         exception_type=type(exc).__name__,error=str(exc),elapsed_seconds=time.monotonic()-started)
                     ended=True
                 raise
             except NonRetryableProviderResponse as exc:
-                self.journal.write('attempt_finished',**fields,status='non_retryable_response',
+                self._record_attempt('attempt_finished',**fields,status='non_retryable_response',
                     exception_type=type(exc).__name__,error=str(exc),elapsed_seconds=time.monotonic()-started)
                 ended=True
                 raise RuntimeError(f"Non-retryable model response; provider={self.provider}: {exc}") from exc
             except Exception as exc:
                 if not ended:
-                    self.journal.write('attempt_finished',**fields,status='rejected_or_transport_failed',
+                    self._record_attempt('attempt_finished',**fields,status='rejected_or_transport_failed',
                         exception_type=type(exc).__name__,error=str(exc),elapsed_seconds=time.monotonic()-started)
                     ended=True
                 if attempt == tries-1:
@@ -334,13 +354,13 @@ class APIClient:
                 await self._wait_before_retry(min(60,5*2**attempt),fields)
             finally:
                 if not ended:
-                    self.journal.write('attempt_finished',**fields,status='failed_or_cancelled',
+                    self._record_attempt('attempt_finished',**fields,status='failed_or_cancelled',
                         elapsed_seconds=time.monotonic()-started)
         raise RuntimeError("Unreachable")
 
     async def _wait_before_retry(self, seconds: float, context: dict) -> None:
         if self.budget.requests>=self.budget.max_requests or seconds>=self.budget.remaining():
-            self.journal.write('retry_blocked_by_execution_limit',**context,requested_delay_seconds=seconds)
+            self._record_attempt('retry_blocked_by_execution_limit',**context,requested_delay_seconds=seconds)
             raise ExecutionLimit('Retry would exceed the declared request or elapsed-time limit')
         await asyncio.sleep(seconds)
 

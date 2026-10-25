@@ -11,11 +11,29 @@ from .runner import ACTORS, digest
 FORKS=(75,95,115,135)
 
 
+def admit_reply_identities(rows: list[dict], seen: set) -> None:
+    """Reject reused live calls, including copies with rewritten byte seals."""
+    for row in rows:
+        for actor in row['actors'].values():
+            meta=actor['model_meta']
+            if meta['provider']=='mock':
+                continue
+            for name in ('call_id','accepted_attempt_id','provider_response_id'):
+                identity=meta.get(name)
+                if not isinstance(identity,str) or not identity:
+                    raise ValueError('Live primitive lacks a stable '+name)
+                key=(meta['provider'],meta['model'],name,identity)
+                if key in seen:
+                    raise ValueError('Duplicate live reply identity across evidence: '+name)
+                seen.add(key)
+
+
 def validate_bases(bases: list[Path], *, current_protocol: bool=False) -> dict:
     if len(bases)!=12:
         raise ValueError('Protocol expects 12 distinct independent base identities')
     paths=set()
     raw_ids=set()
+    reply_ids=set()
     populations=set()
     checked={}
     for supplied in bases:
@@ -26,10 +44,13 @@ def validate_bases(bases: list[Path], *, current_protocol: bool=False) -> dict:
         meta,done,rows=validate_base(path,current_protocol=current_protocol)
         if len(rows)<max(FORKS):
             raise ValueError('Base is too short for the frozen fork periods')
-        identity=done['rounds_sha256']
+        # JSON whitespace is not independent data. Preserve the byte seal for
+        # integrity, but use canonical primitives for duplicate detection.
+        identity=digest(rows)
         if identity in raw_ids:
             raise ValueError('Duplicate base primitive identity, including copied files')
         raw_ids.add(identity)
+        admit_reply_identities(rows,reply_ids)
         populations.add(population_key(meta))
         checked[path]=(meta,done,rows)
     if len(populations)!=1:
@@ -77,16 +98,19 @@ def validate_plan(plan: dict, *, current_protocol: bool=False) -> dict:
     return checked
 
 
-def validate_branch_ownership(entry: dict, seen_paths: set, seen_raw: set) -> None:
+def validate_branch_ownership(entry: dict, seen_paths: set, seen_raw: set, seen_replies: set) -> None:
     for kind,name in entry['branches'].items():
         path=Path(name).resolve()
         if path in seen_paths:
             raise ValueError('A branch path is assigned to multiple campaign rows/roles')
         seen_paths.add(path)
-        raw_id=digest((path/'continuation.jsonl').read_bytes())
+        rows=[json.loads(line) for line in (path/'continuation.jsonl').read_text().splitlines() if line.strip()]
+        raw_id=digest(rows)
         if raw_id in seen_raw:
             raise ValueError('A copied branch primitive identity is assigned more than once')
         seen_raw.add(raw_id)
+        # The source round deliberately copies its base call; continuations do not.
+        admit_reply_identities(rows[1:],seen_replies)
         meta=json.loads((path/'meta.json').read_text())
         if meta.get('intervention')!=kind or meta.get('fork_period')!=entry['period'] or meta.get('cutter')!=entry['cutter'] or meta.get('planned_rounds')!=15:
             raise ValueError('Branch role/source period/cutter/horizon differs from plan')

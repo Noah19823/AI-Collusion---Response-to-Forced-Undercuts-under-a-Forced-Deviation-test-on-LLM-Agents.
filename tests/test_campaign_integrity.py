@@ -81,6 +81,16 @@ class CampaignIntegrityTests(unittest.TestCase):
             asyncio.run(execute_plan(plan,'mock',MODEL,limit=1))
         provider.assert_not_called()
 
+    def test_reformatted_copy_is_not_an_independent_base(self):
+        copied=self.copied(self.bases[0])
+        with (copied/'rounds.jsonl').open('ab') as stream:stream.write(b'\n')
+        seal=json.loads((copied/'completion.json').read_text())
+        seal['rounds_sha256']=digest((copied/'rounds.jsonl').read_bytes())
+        (copied/'completion.json').write_text(json.dumps(seal))
+        paths=list(self.bases)
+        paths[1]=copied
+        with self.assertRaisesRegex(ValueError,'Duplicate base primitive'):make_plan(paths)
+
     def test_wrong_period_cutter_and_second_sham_assignment_fail_even_when_resealed(self):
         for field,value in (('period',95),('cutter','Firm B'),('subset_extra',not self.plan['rows'][0]['subset_extra'])):
             plan=copy.deepcopy(self.plan)
@@ -160,6 +170,21 @@ class CampaignIntegrityTests(unittest.TestCase):
         self.assertFalse((campaign/'completion.json').exists())
         self.assertTrue((Path(failure['completed_branches_in_row']['sham'])/'completion.json').exists())
         self.assertTrue((Path(failure['failed_branch'])/'failure.json').exists())
+
+    def test_campaign_publication_failure_latches_even_after_completion_appears(self):
+        import os
+        link=os.link
+        def fail_after_link(source,target):
+            link(source,target)
+            if target.parent.name.startswith('campaign_'):
+                raise OSError('injected post-publication failure')
+        with patch('collusion.runner.LOGROOT',self.scratch),patch('collusion.runner.os.link',fail_after_link):
+            with self.assertRaisesRegex(OSError,'post-publication'):
+                asyncio.run(execute_plan(self.plan,'mock',MODEL,limit=1))
+        campaign=next(self.scratch.glob('campaign_*'))
+        self.assertTrue((campaign/'completion.json').exists())
+        self.assertEqual(json.loads((campaign/'failure.json').read_text())['phase'],'completion_publication')
+        with self.assertRaisesRegex(ValueError,'failure latch'):load_campaign(campaign)
 
     def test_post_collection_validation_failure_retains_every_completed_branch(self):
         with patch('collusion.runner.LOGROOT',self.scratch),patch(

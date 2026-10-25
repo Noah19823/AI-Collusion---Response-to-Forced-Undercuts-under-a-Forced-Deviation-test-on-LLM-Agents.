@@ -120,14 +120,21 @@ async def execute_plan(plan:dict,provider:str,model:str,limit:int=None,include_u
         2+(1+int(include_up) if r["subset_extra"] else 0)
         for r in selected
     )
-    save_json(path/"completion.json",{"rows_complete":len(selected),
-              "branch_counts":actual_branch_count,
-              "include_up":include_up,
-              "provider":provider,
-              "classification":"SYNTHETIC_INTEGRATION" if provider=="mock" else "LIVE_MODEL",
-              "plan_sha256":plan.get('plan_sha256'),
-              "campaign_attempts_sha256":digest((path/'attempts.jsonl').read_bytes()),
-              "manifest_sha256":digest(manifest.read_bytes())})
+    try:
+        save_json(path/"completion.json",{"rows_complete":len(selected),
+                  "branch_counts":actual_branch_count,
+                  "include_up":include_up,
+                  "provider":provider,
+                  "classification":"SYNTHETIC_INTEGRATION" if provider=="mock" else "LIVE_MODEL",
+                  "plan_sha256":plan.get('plan_sha256'),
+                  "campaign_attempts_sha256":digest((path/'attempts.jsonl').read_bytes()),
+                  "manifest_sha256":digest(manifest.read_bytes())})
+    except BaseException as exc:
+        save_json(path/'failure.json',{'status':'FAILED_COMPLETION_PUBLICATION','at_utc':utc_now(),
+            'phase':'completion_publication','rows_complete':len(selected),
+            'exception_type':type(exc).__name__,
+            'no_completion_marker':not (path/'completion.json').exists()})
+        raise
     return path
 
 def summarize(plan:dict,manifest:Path) -> dict:

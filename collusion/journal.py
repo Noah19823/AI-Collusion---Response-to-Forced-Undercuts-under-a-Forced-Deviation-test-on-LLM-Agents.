@@ -34,6 +34,10 @@ class ExecutionLimit(RuntimeError):
     """The declared request count or elapsed-time limit has been reached."""
 
 
+class EvidencePersistenceError(OSError):
+    """Durable evidence failed; this must never enter provider retry logic."""
+
+
 class ExecutionBudget:
     def __init__(self, max_requests: int, deadline_seconds: float):
         if isinstance(max_requests,bool) or not isinstance(max_requests,int) or max_requests<1:
@@ -44,8 +48,14 @@ class ExecutionBudget:
         self.deadline_seconds=deadline_seconds
         self.started=time.monotonic()
         self.requests=0
+        self.halted=False
+
+    def halt(self) -> None:
+        self.halted=True
 
     def remaining(self) -> float:
+        if self.halted:
+            raise ExecutionLimit('Execution halted after evidence persistence failure')
         remaining=self.deadline_seconds-(time.monotonic()-self.started)
         if remaining<=0:
             raise ExecutionLimit('Execution deadline reached; no additional requests authorized')

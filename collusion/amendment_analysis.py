@@ -21,8 +21,8 @@ from .analysis import _read_branch, verify_pair
 from .inference import fit_pooled_rho, pooled_rho_diagnostics, rho_sufficient_stats, percentile
 from .market import Market
 from .runner import digest
-from .census import validate_plan, validate_branch_ownership
-from .records import validate_branch
+from .census import validate_plan, validate_branch_ownership,admit_reply_identities
+from .records import validate_branch,require_unfailed
 from .robustness import certify_rho_interval
 
 MARKET = Market(quantity_scale=1)
@@ -99,6 +99,7 @@ def checked_second_sham(sham_dir: Path, sham2_dir: Path):
 
 
 def load_campaign(campaign:Path) -> dict:
+    require_unfailed(campaign)
     seal_path=campaign/"completion.json"
     if not seal_path.exists():
         raise ValueError("Campaign not sealed; partial campaigns cannot be confirmatory")
@@ -149,6 +150,9 @@ def load_campaign(campaign:Path) -> dict:
     seen_rows=set()
     seen_branch_paths=set()
     seen_branch_raw=set()
+    seen_replies=set()
+    for _,_,rows in checked_bases.values():
+        admit_reply_identities(rows,seen_replies)
     for entry in manifest:
         index=entry["plan_row"]
         if index in seen_rows:
@@ -162,7 +166,7 @@ def load_campaign(campaign:Path) -> dict:
                 raise ValueError("Manifest differs from predeclared plan: "+name)
         if entry.get("status")!="COMPLETE":
             raise ValueError("Incomplete manifest row")
-        validate_branch_ownership(entry,seen_branch_paths,seen_branch_raw)
+        validate_branch_ownership(entry,seen_branch_paths,seen_branch_raw,seen_replies)
         run_id=entry["run_id"]
         base=Path(entry["base"])
         bm=json.loads((base/"meta.json").read_text())

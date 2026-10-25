@@ -133,6 +133,7 @@ def _validated_base_bytes(meta_bytes: bytes, done_bytes: bytes, raw: bytes):
 
 
 def validate_base(path: Path, *, current_protocol: bool=False):
+    require_unfailed(path)
     meta,done,rows=_validated_base_bytes((path/'meta.json').read_bytes(),
         (path/'completion.json').read_bytes(),(path/'rounds.jsonl').read_bytes())
     if current_protocol:
@@ -141,9 +142,15 @@ def validate_base(path: Path, *, current_protocol: bool=False):
     return meta,done,rows
 
 
+def require_unfailed(path: Path) -> None:
+    if (path/'failure.json').exists():
+        raise ValueError('Episode/campaign has a failure latch; completion cannot override it')
+
+
 def validate_attempt_evidence(path: Path, meta: dict, seal: dict, rows: list[dict], *, skip_first=False):
     from .runner import digest
-    from .client import validate_reply
+    from .client import validate_reply, reply_schema_violations
+    require_unfailed(path)
     if 'actor_outcomes_sha256' in seal:
         if digest((path/'actor_outcomes.jsonl').read_bytes())!=seal['actor_outcomes_sha256']:
             raise ValueError('Actor outcome journal seal mismatch')
@@ -210,6 +217,9 @@ def validate_attempt_evidence(path: Path, meta: dict, seal: dict, rows: list[dic
                 expected_stop='stop'
             if stop!=expected_stop or mm.get('stop_reason')!=stop or validate_reply(content)!=actor['response']:
                 raise ValueError('Raw response differs from accepted primitive fields')
+            issues=reply_schema_violations(content)
+            if issues or mm.get('reply_schema_violations')!=issues or accepted[identity].get('reply_schema_violations')!=issues:
+                raise ValueError('Raw response or accepted-attempt diagnostics violate the requested schema')
             primitive[(row['period'],agent)]=actor
     if consumed!=set(accepted):
         raise ValueError('Accepted HTTP replies are missing from the completed primitive history')
@@ -229,6 +239,7 @@ def validate_attempt_evidence(path: Path, meta: dict, seal: dict, rows: list[dic
 
 def validate_branch(base_dir: Path, branch_dir: Path):
     from .runner import digest, choose_fork_source
+    require_unfailed(branch_dir)
     bm,bd,base=validate_base(base_dir)
     meta=json.loads((branch_dir/'meta.json').read_text())
     seal=json.loads((branch_dir/'completion.json').read_text())
