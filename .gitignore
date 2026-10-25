@@ -218,3 +218,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Independently generated local results; never commit API output without review.
+logs/
+__pycache__/
+.pytest_cache/
