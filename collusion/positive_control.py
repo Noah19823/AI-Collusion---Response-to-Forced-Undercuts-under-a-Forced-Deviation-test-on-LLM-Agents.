@@ -20,7 +20,7 @@ import random
 import statistics as st
 from pathlib import Path
 
-os.environ["COLLUSION_PROMPT_VARIANT"] = "punisher"   # set before any prompt is built
+os.environ["COLLUSION_PROMPT_VARIANT"] = "punisher_v2"   # set before any prompt is built
 
 from .runner import (run_folder, save_json, base_episode, fork_episode, ACTORS, DEFAULT_MODEL)
 from .analysis import evaluate_pair
@@ -35,7 +35,7 @@ SEED = 20261100
 async def run(provider: str, model: str, concurrency: int, resume: Path | None):
     if resume is None:
         out = run_folder("positive")
-        save_json(out / "meta.json", {"prompt_variant": "punisher", "rounds": ROUNDS,
+        save_json(out / "meta.json", {"prompt_variant": "punisher_v2", "rounds": ROUNDS,
                                       "forks": FORKS, "added_after_main_results": True})
     else:
         out = resume
