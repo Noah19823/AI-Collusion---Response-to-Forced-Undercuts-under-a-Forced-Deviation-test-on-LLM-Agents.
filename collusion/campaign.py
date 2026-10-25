@@ -15,6 +15,7 @@ from .runner import (LOGROOT, DEFAULT_MODEL,ACTORS,
                      run_folder,save_json,digest,fork_episode)
 from .analysis import estimate_rho,evaluate_pair,verify_pair
 from .client import get_client
+from .protocol_binding import require_compatible_protocol
 
 FORKS=(75,95,115,135)
 
@@ -29,8 +30,9 @@ def load_base_list(path:Path) -> list[Path]:
         completed=json.loads((d/"completion.json").read_text())
         if meta["kind"]!="base" or meta["n_agents"]!=2 or completed["completed_rounds"]<max(FORKS):
             raise ValueError(f"Bad or too-short duopoly base: {d}")
-        if meta["protocol_sha256"]!=digest((Path(__file__).resolve().parents[1]/"PROTOCOL.md").read_bytes()):
-            raise ValueError(f"Protocol mismatch in base: {d}")
+        require_compatible_protocol(
+            meta["protocol_sha256"], Path(__file__).resolve().parents[1],
+            source=f"campaign source base {d}")
     return paths
 
 def make_plan(bases:list[Path], seed:int=20261025) -> dict:

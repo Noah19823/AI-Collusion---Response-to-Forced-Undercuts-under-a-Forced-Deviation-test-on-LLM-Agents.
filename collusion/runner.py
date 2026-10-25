@@ -30,6 +30,7 @@ from .client import get_client
 from .market import Market
 from .prompt import build_prompt, P1, GENERAL_PROMPT, SCHEMA
 from .scripted import grid
+from .protocol_binding import protocol_compatible, require_compatible_protocol
 
 ROOT = Path(__file__).resolve().parents[1]
 LOGROOT = ROOT/"logs"
@@ -172,8 +173,7 @@ async def fork_episode(client,provider: str,model: str,base_dir: Path,
         raise ValueError("Must fork a duopoly")
     if bm["model"]!=model or bm["provider"]!=provider:
         raise ValueError("Branch provider/model must match source")
-    if bm["protocol_sha256"]!=digest((ROOT/"PROTOCOL.md").read_bytes()):
-        raise ValueError("Source protocol digest differs; do not silently mix versions")
+    require_compatible_protocol(bm["protocol_sha256"], ROOT, source="fork source base")
     base=load_jsonl(base_dir/"rounds.jsonl")
     if len(base)<period: raise ValueError("Missing base source checkpoint")
     prefix=copy.deepcopy(base[:period-1])
@@ -244,7 +244,7 @@ def main():
         pre_done=json.loads((args.pretest_dir/"completion.json").read_text())
         if (pre_meta["kind"]!="pretest" or pre_meta["provider"]!=args.provider
              or pre_meta["model"]!=model or pre_meta["planned_rounds"]<50
-             or pre_meta["protocol_sha256"]!=digest((ROOT/"PROTOCOL.md").read_bytes())
+             or not protocol_compatible(pre_meta["protocol_sha256"], ROOT)
              or not pre_done.get("pretest_near_one_product_monopoly",False)):
             parser.error("Pretest does not qualify this model, provider and protocol")
     async def do_run():
