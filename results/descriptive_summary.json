@@ -1,0 +1,81 @@
+{
+  "scope": "LIVE_MODEL_DESCRIPTIVE",
+  "provider_classification": "LIVE",
+  "rho_fit": {
+    "rho_unrestricted": 0.9215871718895746,
+    "rho_clipped_for_model": 0.9215871718895746,
+    "intercept": 0.03122307250465045,
+    "n_observations": 1776,
+    "residual_RMSE": 0.09150908870336537,
+    "note": "OLS parameter estimate is NOT proof of structural stickiness; bootstrap by run."
+  },
+  "n_base_runs": 12,
+  "n_forks": 48,
+  "n_extra_sham": 12,
+  "n_extra_up": 0,
+  "per_run": [
+    {
+      "run_id": 0,
+      "PI_dynamic_mean": 0.07167883169134262,
+      "G_H_mean": 0.5888448571037568
+    },
+    {
+      "run_id": 1,
+      "PI_dynamic_mean": -0.17019877088385846,
+      "G_H_mean": 1.5185266602698748
+    },
+    {
+      "run_id": 2,
+      "PI_dynamic_mean": -1.7271130585694598,
+      "G_H_mean": 1.718968927204389
+    },
+    {
+      "run_id": 3,
+      "PI_dynamic_mean": -1.4253352882274493,
+      "G_H_mean": 2.071370022050445
+    },
+    {
+      "run_id": 4,
+      "PI_dynamic_mean": 0.20410457526476938,
+      "G_H_mean": 0.23945393498167897
+    },
+    {
+      "run_id": 5,
+      "PI_dynamic_mean": -0.1440985981797298,
+      "G_H_mean": 1.113372093214634
+    },
+    {
+      "run_id": 6,
+      "PI_dynamic_mean": 0.2567876149013723,
+      "G_H_mean": 0.36433953254993057
+    },
+    {
+      "run_id": 7,
+      "PI_dynamic_mean": -0.22143616735562,
+      "G_H_mean": 0.8266279481698857
+    },
+    {
+      "run_id": 8,
+      "PI_dynamic_mean": -0.9841324298364864,
+      "G_H_mean": 1.304330766665349
+    },
+    {
+      "run_id": 9,
+      "PI_dynamic_mean": -0.9845124420162426,
+      "G_H_mean": 2.391944423796216
+    },
+    {
+      "run_id": 10,
+      "PI_dynamic_mean": -0.9608188254323108,
+      "G_H_mean": 0.36167345424671726
+    },
+    {
+      "run_id": 11,
+      "PI_dynamic_mean": -0.31865642026130414,
+      "G_H_mean": -0.1718479975362618
+    }
+  ],
+  "mean_PI_dynamic_fixed_rho": -0.5336442482420815,
+  "decision": "DESCRIPTIVE_ONLY",
+  "note": "Model-visible prices are rounded to 2dp. If rho is unidentified, do not issue PI_dyn conclusions. Even when identified, proper run-cluster bootstrap is required."
+}

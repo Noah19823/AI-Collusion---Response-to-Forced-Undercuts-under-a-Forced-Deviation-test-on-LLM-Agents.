@@ -1,0 +1,23 @@
+{
+  "provider": "anthropic",
+  "classification": "LIVE_MODEL",
+  "campaign": "logs/campaign_df8a7e69f2a6",
+  "n_runs": 12,
+  "n_forks": 48,
+  "rho_fitted": 0.9215871718895743,
+  "rho_identified": true,
+  "bootstrap_repeats_requested": 10000,
+  "PI_dynamic_mean": -0.5336442482420806,
+  "CI95": [
+    -0.8556176350984277,
+    -0.19439947799893387
+  ],
+  "rho_CI95": [
+    0.8717405109857947,
+    0.9470370527482992
+  ],
+  "bootstrap_valid": 10000,
+  "bootstrap_invalid": 0,
+  "decision": "NEGATIVE_DYNAMIC_RESIDUAL_ONLY",
+  "qualification": "Negative residual is deviation from sticky myopic BR null, NOT proof of retaliation."
+}
