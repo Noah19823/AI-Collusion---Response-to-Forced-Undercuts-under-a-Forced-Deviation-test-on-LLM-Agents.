@@ -8,6 +8,26 @@ This is the main protocol. It replaces the version in our first commit. Every ch
 
 ---
 
+## Amendment 1 (October 25, before any live model data)
+
+x3klr007 built and tested the experiment code (PR #1) on a mock model and found five problems with this protocol. We checked each one. The text in Sections 1 to 16 below is left as it was, and where it disagrees with this amendment, this amendment is what we follow. No Haiku or other paid model calls had been made when this was written.
+
+**A1. Monopoly pretest target.** Section 6 says the solo agent should end up near 1.92. That is the price for one firm owning both products. An agent alone selling one product should end up near 1.80 (we get 1.8020, and so does the code). The pretest now passes if the mean price over the agent's last 10 periods is within 0.12 of 1.80, which is what `collusion/runner.py` checks.
+
+**A2. Prediction P3.** P3 said the dynamic measure would be more negative than the one-period test on the LLM forks. That doesn't test anything, because a sticky agent that doesn't punish already scores +0.094 on the one-period test and 0 on the dynamic measure, so P3 would come out true with no punishment at all. The new P3 compares what each measure concludes, not their numbers:
+
+> P3 (amended). If rho is identified and is at least 0.5, we apply the Section 7 decision rule to the dynamic measure, and we call the one-period test "punishes" only if its 95% interval is below zero. P3 holds if the dynamic measure says the LLM punishes and the one-period test does not. If both measures reach the same conclusion, P3 fails and we report that. We also report, fork by fork, how often the two measures disagree.
+
+**A3. Estimating rho from what the agent saw.** The Fish prompt shows prices to two decimals. Rho is now estimated only from those rounded, shown prices, using the periods up to 75, as in `collusion/inference.py`. Once prices settle, the shown prices barely change, so rho may not be identifiable. If the code abstains (`ABSTAIN_RHO_NOT_IDENTIFIABLE` or `ABSTAIN_BOOTSTRAP_RHO_UNSTABLE`), we don't pick a value for it. Instead we report PI_H^dyn at rho = 0, 0.25, 0.5, 0.75, 0.9 and 0.95, say which of those values give a "punishes" result, and make no confirmatory claim that the LLM does or doesn't punish. Part 1 is unaffected.
+
+**A4. What a negative dynamic score means.** The dynamic baseline is an agent that is sticky and responds only to the last price it saw. A negative PI_H^dyn means the rival priced below that. It doesn't prove punishment. An agent that doesn't punish but expects the cutter to keep cutting would also price lower, and in x3klr007's synthetic tests that kind of agent scores negative after a cut and positive after a rise, so it passes the upward check as well. In the report we describe a negative score as "priced below the sticky, myopic non-punishing baseline," which is consistent with punishment but doesn't establish it.
+
+**A5. What G_H^enforced measures.** The recomputation in Section 8 keeps the cutter's actual later prices fixed and only swaps in the baseline for the rival. So it measures how the rival's prices directly changed the cutter's profit, not everything that would have happened if the rival had acted differently. The report says this.
+
+**Added after the protocol, exploratory only.** PR #1 also includes synthetic checks showing that a punishing policy and a policy that forecasts further cuts can produce the same prices, and that whether a cut pays can flip between a 9.5% and a 10% cut for a threshold-type rival. These are labeled exploratory in the report. The confirmatory cut stays at 10%. We only run a 5% or 20% cut subset if there is time and budget left after the main runs, and that would also be exploratory.
+
+---
+
 ## 1. What we are asking
 
 A cartel only holds if a member who cheats gets punished, so testing LLM collusion means making one agent cheat and seeing what its rival does. Tran and Yu (2026) do this by copying a market, forcing one agent to cut its price for one period, and comparing the rival's price one period later against the copy where nothing happened. Using that test, most prompted LLMs do not punish.
@@ -221,5 +241,7 @@ The brief, the best-response calculations and the literature review were done be
 | Oct 24 | Say versus do reduced to a 2 × 2 with counts and a Fisher test. The three-way prediction was dropped. | 48 forks is too few for held-out prediction. | No |
 | Oct 24 | LLM cut changed to 10% below the cutter's own price, and the upward copy to a 10% rise. The scripted grid keeps the one-period best deviation. | After reading Tran and Yu's full paper, so our one-period numbers can be compared with theirs. | No |
 | Oct 24 | Brief and protocol rewritten in plainer language. No change to the design. | Readability. | No |
+| Oct 25 | Merged PR #1 (x3klr007): experiment runner, fork campaign, inference with abstention, tests. All 20 tests pass. | Implementation of this protocol, checked on a mock model only. | No |
+| Oct 25 | Amendment 1 (A1 to A5 at the top of this file): pretest target 1.80, P3 rewritten to compare conclusions, rho from shown two-decimal prices with a fixed rho grid if it can't be identified, narrower wording for negative PI_H^dyn and for G_H^enforced. | Problems found by x3klr007 while building and testing the code. | No |
 | | Pooled rho = ___ | Estimated from base runs before forks | No |
 | | Model used: ___ | Passed monopoly pretest | No |
