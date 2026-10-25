@@ -21,29 +21,69 @@ M=Market(quantity_scale=1)
 def rho_sufficient_stats(base:Path,max_period:int=75):
     rows=load_jsonl(base/"rounds.jsonl")
     xs,ys=[],[]
+    by_actor={'Firm A':[],'Firm B':[]}
+    transitions=0
     for i in range(1,min(len(rows),max_period)):
         current,previous=rows[i],rows[i-1]
         for a in ("Firm A","Firm B"):
             rival="Firm B" if a=="Firm A" else "Firm A"
             q=round(previous["actors"][rival]["executed_price"],2)
             b=M.best_response(q)
-            xs.append(round(previous["actors"][a]["executed_price"],2)-b)
+            x=round(previous["actors"][a]["executed_price"],2)-b
+            xs.append(x)
+            by_actor[a].append(x)
             ys.append(current["actors"][a]["executed_price"]-b)
+            transitions+=int(round(current['actors'][a]['executed_price'],2)!=round(previous['actors'][a]['executed_price'],2))
+    within=sum(sum((x-sum(values)/len(values))**2 for x in values)
+               for values in by_actor.values() if values)
     return {"n":len(xs),"x":sum(xs),"y":sum(ys),
-            "xx":sum(x*x for x in xs),"xy":sum(x*y for x,y in zip(xs,ys))}
+            "xx":sum(x*x for x in xs),"xy":sum(x*y for x,y in zip(xs,ys)),
+            'within_run_agent_xx':within,'visible_price_transitions':transitions}
 
-def fit_pooled_rho(stats:list[dict]):
+def pooled_rho_diagnostics(stats:list[dict]) -> dict:
+    """Keep the common-intercept OLS estimand; reject necessary ID failures.
+
+    This is not a new fixed-effects estimator or a claim of sufficient power.
+    The existing 1e-10 numerical singularity tolerance also checks whether the
+    pooled signal exists within a run/agent, rather than only between targets.
+    """
     n=sum(v["n"] for v in stats)
-    if n<20:return None
+    result={'rho_unrestricted':None,'rho_for_model':None,'clipping_applied':False,
+            'n_observations':n,'reason':'INSUFFICIENT_OBSERVATIONS',
+            'structural_assumption':'common intercept and sticky last-price best response; not established by this gate'}
+    if n<20:return result
     sx=sum(v["x"] for v in stats);sy=sum(v["y"] for v in stats)
     sxx=sum(v["xx"] for v in stats);sxy=sum(v["xy"] for v in stats)
     denom=sxx-sx*sx/n
     # Report insufficient signal rather than fitting tiny covariances.
-    if denom<=1e-10:return None
+    result['pooled_xx']=denom
+    if denom<=1e-10:
+        result['reason']='POOLED_REGRESSOR_SINGULAR'
+        return result
     r=(sxy-sx*sy/n)/denom
-    if not math.isfinite(r):return None
-    # Predeclared physical rho interval [0,1). Report clipping explicitly.
-    return min(.999,max(0.0,r))
+    if not math.isfinite(r):
+        result['reason']='NONFINITE_OLS'
+        return result
+    result.update(rho_unrestricted=r,legacy_clipped_value=min(.999,max(0.0,r)),
+                  legacy_clip_would_change=(min(.999,max(0.0,r))!=r))
+    if any('within_run_agent_xx' not in v or 'visible_price_transitions' not in v for v in stats):
+        result['reason']='WITHIN_RUN_DIAGNOSTICS_MISSING'
+        return result
+    within=sum(v['within_run_agent_xx'] for v in stats)
+    transitions=sum(v['visible_price_transitions'] for v in stats)
+    result.update(within_run_agent_xx=within,visible_price_transitions=transitions)
+    if within<=1e-10 or transitions==0:
+        result['reason']='NO_WITHIN_RUN_AGENT_VISIBLE_EXCITATION'
+        return result
+    if not 0<=r<1:
+        result['reason']='OLS_OUTSIDE_DECLARED_RHO_DOMAIN'
+        return result
+    result.update(rho_for_model=r,reason='NECESSARY_IDENTIFICATION_CHECKS_PASSED')
+    return result
+
+
+def fit_pooled_rho(stats:list[dict]):
+    return pooled_rho_diagnostics(stats)['rho_for_model']
 
 def primitive_features(base:Path, sham:Path, cut:Path):
     cm,s,c,resp=verify_pair(base,sham,cut)
@@ -56,7 +96,8 @@ def primitive_features(base:Path, sham:Path, cut:Path):
         ds.append(diff)
         brds.append(M.best_response(qcut)-M.best_response(qsham))
     for k in range(len(c)):
-        profits.append(c[k]["actors"][cutter]["profit"]-s[k]["actors"][cutter]["profit"])
+        profits.append(100*(M.profit(c[k]['actors'][cutter]['executed_price'],c[k]['actors'][resp]['executed_price'])-
+                            M.profit(s[k]['actors'][cutter]['executed_price'],s[k]['actors'][resp]['executed_price'])))
     # Raw profit logs have scale=100 whereas model index is on prices.
     return {"diff":ds,"br_diff":brds,"G_H_model_units":sum(profits),
             "period":cm["fork_period"],"cutter":cutter}
@@ -74,6 +115,10 @@ def percentile(data:list[float],p:float):
     return a[i] if i>=len(a)-1 else a[i]*(1+i-s)+a[i+1]*(s-i)
 
 def report(campaign:Path,repeats:int=10000,seed:int=20261025):
+    # The legacy descriptive entry point must not bypass campaign ownership and
+    # primitive-record checks used by the amended analyzer.
+    from .amendment_analysis import load_campaign
+    load_campaign(campaign)
     if not (campaign/"completion.json").exists():
         raise ValueError("Campaign not complete")
     meta=json.loads((campaign/"completion.json").read_text())
@@ -95,6 +140,7 @@ def report(campaign:Path,repeats:int=10000,seed:int=20261025):
     result={"provider":meta["provider"],"classification":meta["classification"],
         "campaign":str(campaign),"n_runs":len(ids),
         "n_forks":len(rows),"rho_fitted":rho,
+        'rho_diagnostics':pooled_rho_diagnostics([stats[i] for i in ids]),
         "rho_identified":rho is not None,
         "bootstrap_repeats_requested":repeats}
     if rho is None:

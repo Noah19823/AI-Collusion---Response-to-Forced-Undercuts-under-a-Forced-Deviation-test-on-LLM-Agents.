@@ -57,7 +57,7 @@ class DecisionLogicTests(unittest.TestCase):
             "provider":"anthropic",
             "groups":{i:[positive]*4 for i in range(12)},
             "rho_stats":{i:{"n":100,"x":0.0,"y":0.0,
-                            "xx":10.0,"xy":8.0} for i in range(12)},
+                            "xx":10.0,"xy":8.0,"within_run_agent_xx":10.0,"visible_price_transitions":100} for i in range(12)},
             "noise_by_run":{i:[null] for i in range(12)},
             "n_forks":48,"n_second_shams":12,
             "n_runs":12,"plan_matches":True
@@ -79,7 +79,7 @@ class DecisionLogicTests(unittest.TestCase):
             "provider":"mock",
             "groups":{i:[negative]*4 for i in range(12)},
             "rho_stats":{i:{"n":100,"x":0.0,"y":0.0,
-                            "xx":10.0,"xy":8.0} for i in range(12)},
+                            "xx":10.0,"xy":8.0,"within_run_agent_xx":10.0,"visible_price_transitions":100} for i in range(12)},
             "noise_by_run":{i:[null] for i in range(12)},
             "n_forks":48,"n_second_shams":12,
             "n_runs":12,"plan_matches":True

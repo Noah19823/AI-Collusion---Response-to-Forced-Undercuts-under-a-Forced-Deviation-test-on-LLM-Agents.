@@ -11,15 +11,19 @@ import json
 from pathlib import Path
 
 from .campaign import load_base_list
-from .inference import fit_pooled_rho, rho_sufficient_stats
+from .inference import fit_pooled_rho, pooled_rho_diagnostics, rho_sufficient_stats
+from .census import validate_bases
 
 
 def estimate(bases: list[Path], max_period: int = 75) -> dict:
+    validate_bases(bases,current_protocol=True)
     stats = [rho_sufficient_stats(b, max_period) for b in bases]
     pooled = fit_pooled_rho(stats)
     per_run = {str(b): fit_pooled_rho([s]) for b, s in zip(bases, stats)}
     return {"n_runs": len(bases), "max_period": max_period,
             "pooled_rho": pooled,
+            'pooled_diagnostics':pooled_rho_diagnostics(stats),
+            'per_run_diagnostics':{str(b):pooled_rho_diagnostics([s]) for b,s in zip(bases,stats)},
             "decision": "RHO_IDENTIFIED" if pooled is not None else "ABSTAIN_RHO_NOT_IDENTIFIABLE",
             "per_run_rho": per_run}
 
