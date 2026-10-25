@@ -9,6 +9,7 @@ The mock provider is for pipeline integrity testing and is NOT LLM evidence.
 """
 from __future__ import annotations
 import asyncio
+import random
 import hashlib
 import json
 import math
@@ -170,11 +171,16 @@ class APIClient:
     async def choose(self,prompt: str,agent: str) -> tuple[dict,dict]:
         url,headers,payload=self.build_request(prompt,agent)
         # Do not log payload headers/credential. Only safe error summaries.
-        for attempt in range(3):
+        tries=8
+        for attempt in range(tries):
             try:
                 resp=await self.http.post(url,headers=headers,json=payload)
-                if resp.status_code in (408,429,500,502,503,504,529) and attempt<2:
-                    await asyncio.sleep(2**attempt)
+                if resp.status_code in (408,429,500,502,503,504,529) and attempt<tries-1:
+                    # Rate limits on small accounts need real waits. Use the server's
+                    # retry-after when given, otherwise back off up to about a minute.
+                    try: wait=float(resp.headers.get("retry-after",""))
+                    except ValueError: wait=min(60,5*2**attempt)
+                    await asyncio.sleep(max(1.0,wait)+random.uniform(0,2))
                     continue
                 if 400<=resp.status_code<500 and resp.status_code not in (408,429):
                     # Client errors won't fix themselves on retry. Show the provider's
@@ -208,10 +214,10 @@ class APIClient:
             except NonRetryableProviderResponse as exc:
                 raise RuntimeError(f"Non-retryable model response; provider={self.provider}: {exc}") from exc
             except Exception as exc:
-                if attempt == 2:
+                if attempt == tries-1:
                     raise RuntimeError(f"Model request failed; provider={self.provider},"
                                        f" exception={type(exc).__name__}. No raw key or response logged.") from exc
-                await asyncio.sleep(2**attempt)
+                await asyncio.sleep(min(60,5*2**attempt))
         raise RuntimeError("Unreachable")
 
 def get_client(provider: str,model: str, *, seed: int=0):
