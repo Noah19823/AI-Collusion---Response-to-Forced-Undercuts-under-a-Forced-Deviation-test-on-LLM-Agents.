@@ -4,51 +4,53 @@ Do forced-deviation audits of LLM pricing agents miss punishment that comes slow
 
 Apart Research AI Collusion Research Sprint, October 23 to 25, 2026. Tracks 1 and 2.
 
-## Abstract (draft, brackets filled after runs)
+## Abstract (draft, brackets get filled after the runs)
 
-A cartel holds only if a member who cheats gets punished, so recent audits of LLM pricing agents force one agent to cut its price in a cloned market and compare the rival's response with an undeviated copy. These audits read the response one period after the cut. LLM agents adjust prices slowly, and an agent that punishes slowly barely moves in that first period. Using scripted agents with known strategies, we show that the one-period test classifies every punisher with stickiness of 0.5 or more as a non-punisher. A corrected measure, which compares the rival with a sticky agent that does not punish, classifies every scripted agent correctly. Re-auditing Claude Haiku 4.5 under the Fish et al. protocol across [12] runs and [48] forks, we estimate stickiness at [rho] and find that the two measures [agree / disagree]: [result, with interval]. Audits should account for how fast agents move before calling them non-punishers.
+A cartel holds only if a member who cheats gets punished. Because of this, recent audits of LLM pricing agents force one agent to cut its price in a cloned market and compare the rival's response with a copy where no cut happened. These audits look at the rival's price one period after the cut. LLM agents usually change their prices a little at a time, so an agent that punishes slowly hardly moves in that first period. We built scripted agents with known strategies and ran them through the test. The one-period test labels every punisher with stickiness of 0.5 or more as a non-punisher. We then compare the rival with a sticky agent that does not punish, and this labels every scripted agent correctly. We re-audit Claude Haiku 4.5 under the Fish et al. protocol across [12] runs and [48] forks, estimate its stickiness at [rho], and find that the two measures [agree / disagree]: [result, with interval]. Audits need to account for how fast agents change prices before calling them non-punishers.
 
 ## The idea
 
-If two LLM pricing agents keep prices high, that alone does not mean they collude. Prices can end up high for other reasons. What makes it collusion is that cheating gets punished. So the right test is to make one agent cheat and see whether the other hits back harder than plain profit-seeking would.
+Two LLM pricing agents keeping prices high does not on its own mean they are colluding, since prices can end up high for other reasons. In economics, collusion means a firm that cheats gets punished by the others. So to test for it, you make one agent cheat and see whether the other one cuts its price by more than it would if it was only trying to make money that period.
 
-Tran and Yu (2026) built that test for LLM agents. They clone a market, force one agent to cut for one period, and compare the rival's price one period later against the copy where nothing happened. By their test most prompted LLMs do not punish, and only GPT-5.2 does.
+Tran and Yu (2026) built this test for LLM agents. They copy a running market, force one agent to cut its price for one period in the copy, and compare the rival's price one period later between the copy and the original. Using that test, they found most prompted LLMs do not punish, and GPT-5.2 does.
 
-Our question is about the test itself. LLM agents tend to be sticky and move only part of the way each period. A sticky agent that fully means to punish a cut might barely move in the first period. A test that only looks one period out would call it a non-punisher. Tran and Yu name this as a limit of their test ("a strategy that punishes only persistent or large deviations would escape"), but nobody has measured how much it matters or fixed it.
+We want to know if the test can catch an agent that punishes slowly. LLM agents tend to move only part of the way toward a new price each period. If an agent like that decides to punish, it might only move a little in the first period and keep moving after that. A test that only checks one period later would say it is not punishing. Tran and Yu mention this in their limitations ("a strategy that punishes only persistent or large deviations would escape"), and their paper ends by asking for audits over longer horizons. As far as we can find, nobody has measured how much this matters or corrected for it.
 
 ## What we do
 
-**Part 1. Does the one-period test see slow punishers?** We build scripted agents with known stickiness (rho from 0 to 0.92) and known punishment (none, or 0.05 or 0.10 below their profit-seeking price for 10 periods), and run them through the same fork-and-compare pipeline. We compare three measures: the one-period test, a static sum over 15 periods, and our dynamic baseline, which compares the rival to a sticky agent that sees the same prices and never punishes.
+**Part 1. Can the one-period test see a slow punisher?** We write scripted agents in code. Each one has a set stickiness (rho between 0 and 0.92) and a set amount of punishment (none, 0.05, or 0.10 below its profit-seeking price, for 10 periods). We run them through the same copy-and-compare setup and score them three ways: the one-period test, a plain sum of the gap over 15 periods, and a dynamic baseline. The dynamic baseline works out what a sticky agent that never punishes would have done after seeing the same prices, and compares the real agent to that.
 
-We already ran this without noise. The one-period test only catches the punisher that moves all at once. At rho = 0.5 a punisher scores +0.001, and at rho = 0.92 it scores +0.086. Both read as no punishment. The static sum works for a brief cut but breaks when the cut persists. The dynamic baseline gets every case right. This part costs nothing to run and is a result whatever happens with the LLM runs.
+We already ran this without noise. The one-period test only catches the punisher with rho = 0, the one that moves all at once. A punisher with rho = 0.5 scores +0.001 and one with rho = 0.92 scores +0.086, and both of those read as no punishment. The plain sum works when the cut lasts one period but gets it wrong when the cut lasts longer. The dynamic baseline gets every case right. This part costs nothing in API calls and doesn't depend on the LLM runs working.
 
-**Part 2. Re-audit a real LLM.** We run Claude Haiku 4.5, a provider Tran and Yu did not test, under the Fish et al. protocol with written plans. 12 independent runs, 4 forks each. At each fork there is a cut copy and a sham copy, plus a second sham on 12 forks to measure how much copies drift on their own, and a forced price raise on 12 forks to check the agent is reacting to cuts specifically and not to any change. We estimate the model's stickiness from the base runs before any fork, then report all three measures on the same forks. That way our numbers line up with Tran and Yu's and we can see whether the verdict changes.
+**Part 2. Re-audit an LLM.** We run Claude Haiku 4.5 under the Fish et al. protocol, which gives agents written plans. Tran and Yu did not test any non-OpenAI model in the pricing game. We do 12 separate runs with 4 forks each. Each fork gets a cut copy and a copy with no cut. On 12 of the forks we also run a second no-cut copy, to measure how much two copies drift apart by chance, and a copy where the price is forced up instead of down, to check whether the agent reacts to any change or to cuts specifically. We estimate the model's stickiness from the runs before forking, and then report all three measures on the same forks, so the numbers can be compared with Tran and Yu's.
 
-**Deterrence.** We check whether cheating lost the cutter money, counting from the cut period itself. Then we separate how much of that loss came from the rival's response and how much from the cutter's own pricing afterward, by swapping in the non-punishing baseline for the rival and recomputing. Tran and Yu point out that gains alone do not separate punishers from best responders, and this addresses that.
+**Deterrence.** We also check whether the cut lost the cutter money, counting from the period of the cut. Part of any loss could come from the cutter's own pricing after the cut rather than from the rival, so we recompute the cutter's profit with the rival replaced by the non-punishing baseline and take the difference. Tran and Yu point out that profit gains alone can't separate a punisher from a rival that just best responds, and this is our way of handling that.
 
-**Say versus do.** For each fork we check whether the rival wrote a threat before the cut, and whether it punished. With 48 forks this is a descriptive 2 × 2, not a prediction model.
+**Say versus do.** For each fork we look at whether the rival's notes from right before the cut threaten to punish a cut, and whether it actually punished. With 48 forks this is a 2 × 2 table of counts, not a prediction model.
 
-## Why this matters
+## Why it matters
 
-If audits miss slow punishers, then "prompted LLMs rarely punish" could partly come from how the test is built, and a regulator using it would under-detect collusion. If the corrected measure agrees with the one-period test on a real model, Tran and Yu's finding holds for a new provider and a stricter test, which is also worth knowing. Either way, anyone running these audits learns what they need to measure first.
+If the one-period test misses slow punishers, then part of the finding that prompted LLMs rarely punish could come from how the test is set up, and a regulator using it would catch less collusion than is there. If both measures agree on Haiku, then Tran and Yu's finding holds for another provider under a stricter test. In both cases, people running these audits find out whether they need to measure stickiness first.
 
-## Why this is ours
+## How this relates to what has been done
 
-The forking audit is Tran and Yu's, and we say so up front. So are the upward deviation, the myopic placebo and reading the agents' plans for matching rules. Their own paper notes that sticky replies can shrink measured responses, and it ends by asking for longer horizons and more frontier models. Their verdicts for prompted models rest on the response one period after the cut. What we add is a check on the audit's own reliability, done with agents whose answer we already know, plus a fix that passes that check, plus the first application of it to a non-OpenAI model under the Fish protocol. Arslan et al. handle stickiness in the long run, but on a small model answering with a bare number and with an inconclusive result. Lopes de Moraes and De-Losso question what impulse responses identify, but only for Q-learners. No one has shown the one-period LLM audit misreads sticky punishers, or corrected it and validated the correction.
+The forking audit comes from Tran and Yu, and so do the forced price rise, the myopic placebo, and reading agents' plans for rules that match a rival's cut. Their own paper says sticky replies can shrink the responses they measure. Their verdicts for prompted models are based on the response one period after the cut.
 
-This follows what the winning sprint papers did. They asked one clear question, tested whether the measuring tool works before trusting it, put a headline number against a known baseline, paired the diagnosis with a fix, and stated their limits plainly. The OWL paper and the Anchored paper both won by showing a method looked right but measured the wrong thing.
+Arslan et al. (2026) sum responses over a horizon and handle stickiness in the long run, but they used a small model that answers with only a number, with no reasoning or written plans, and their result was inconclusive. Lopes de Moraes and De-Losso (2026) show that for Q-learners a forced price rise gets the same response as a cut, which is why we run the upward copy.
 
-## What we report
+What we add is a check of whether the one-period LLM audit misreads sticky punishers, a corrected measure that passes that check on scripted agents, and a re-audit of a non-OpenAI model under the Fish protocol using both measures.
 
-1. The Part 1 table: for each scripted agent, what each measure says and how often it gets it right.
-2. The LLM's estimated stickiness, and all three measures on its forks side by side, with the dynamic measure across a range of rho.
-3. Deterrence, total and the part caused by the rival.
-4. The threat-by-punishment 2 × 2.
-5. Limits: one model, one market, rho has to be estimated and the result depends on it, the copies drift because the API has no seeds, and scripted agents are simpler than LLMs.
+## What we will report
+
+1. The Part 1 table, showing what each measure says about each scripted agent and how often it is right.
+2. The LLM's estimated stickiness, and the three measures on its forks next to each other, with the dynamic measure shown across a range of rho values.
+3. Deterrence, both the total and the part that came from the rival.
+4. The threat by punishment 2 × 2.
+5. Limitations: one model in one market, the result depends on estimating rho, copies drift because the API has no seed setting, and the scripted agents are simpler than LLMs.
 
 ## Plan
 
-Tonight: unit tests, scripted agents, the three measures, and the Part 1 table. Then the monopoly pretest and base runs. Saturday night into Sunday: estimate rho, run forks, run the second sham and upward copies, then code the text. Sunday: analysis, the audit script that recomputes every number from the raw logs, and the report. If time runs short we drop the upward copy first, then the text coding, then a fork per run. We never drop the 12 runs, the second sham or Part 1.
+Tonight we do the unit tests, the scripted agents, the three measures and the Part 1 table, then the monopoly pretest and base runs. Overnight into Sunday we estimate rho, run the forks and the extra copies, and code the notes. Sunday is analysis, a script that recomputes every number from the raw logs, and the report. If we run out of time, the upward copy goes first, then the note coding, then one fork per run. We keep the 12 runs, the second no-cut copy, and Part 1 no matter what.
 
 ## References
 
