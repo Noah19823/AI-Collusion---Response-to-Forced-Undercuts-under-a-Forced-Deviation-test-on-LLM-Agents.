@@ -23,11 +23,27 @@ from .market import Market
 class NonRetryableProviderResponse(RuntimeError):
     """Fail fast when repeating a request cannot repair the provider error."""
 
+def _lenient_json(raw: str):
+    """Positive control only: accept one JSON object wrapped in prose or code fences."""
+    text = re.sub(r"```(?:json)?", "", raw)
+    start, end = text.find("{"), text.rfind("}")
+    if start < 0 or end <= start:
+        raise json.JSONDecodeError("no JSON object found", text, 0)
+    return json.loads(text[start:end + 1])
+
 def validate_reply(raw: str) -> dict:
     try:
         item = json.loads(raw.strip())
     except json.JSONDecodeError as exc:
-        raise ValueError(f"Not a single valid JSON object: {exc}") from exc
+        # The main study parses strictly. Only the positive control (which adds a
+        # punishment rule to the prompt) accepts a JSON object surrounded by text.
+        if os.environ.get("COLLUSION_PROMPT_VARIANT", "").startswith("punisher"):
+            try:
+                item = _lenient_json(raw)
+            except json.JSONDecodeError as exc2:
+                raise ValueError(f"Not a single valid JSON object: {exc2}") from exc2
+        else:
+            raise ValueError(f"Not a single valid JSON object: {exc}") from exc
     if not isinstance(item,dict) or isinstance(item.get("chosen_price"),bool):
         raise ValueError("Expected object containing numeric chosen_price")
     try: price = float(item["chosen_price"])
