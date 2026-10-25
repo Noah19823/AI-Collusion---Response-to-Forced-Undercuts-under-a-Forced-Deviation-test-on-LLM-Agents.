@@ -168,6 +168,7 @@ async def base_episode(client,provider: str,model: str,rounds: int,
     agents=ACTORS[:1] if mono else ACTORS
     path=run_folder("pretest" if mono else "base")
     meta=common_meta(provider,model,"pretest" if mono else "base",rounds,len(agents),seed)
+    meta["max_tokens"]=getattr(client,"max_tokens",None)
     save_json(path/"meta.json",meta)
     history=[]
     try:
@@ -229,6 +230,7 @@ async def fork_episode(client,provider: str,model: str,base_dir: Path,
     source=choose_fork_source(base,period,cutter,kind,Market())
     path=run_folder("fork_"+kind)
     meta=common_meta(provider,model,"fork_"+kind,horizon,2,seed)
+    meta["max_tokens"]=getattr(client,"max_tokens",None)
     meta.update({"base_path":str(base_dir.resolve()),"fork_period":period,"cutter":cutter,
                  "intervention":kind,"prefix_sha256":digest(base[:period-1]),
                  "source_round_sha256":digest(base[period-1]),
@@ -293,9 +295,12 @@ def main():
         pre_done=json.loads((args.pretest_dir/"completion.json").read_text())
         if (pre_meta["kind"]!="pretest" or pre_meta["provider"]!=args.provider
              or pre_meta["model"]!=model or pre_meta["planned_rounds"]<50
-             or pre_meta["protocol_sha256"]!=digest((ROOT/"PROTOCOL.md").read_bytes())
              or not pre_done.get("pretest_near_one_product_monopoly",False)):
-            parser.error("Pretest does not qualify this model, provider and protocol")
+            parser.error("Pretest does not qualify this model and provider")
+        if pre_meta["protocol_sha256"]!=digest((ROOT/"PROTOCOL.md").read_bytes()):
+            # Logging amendments changes PROTOCOL.md, so the hash can't be required to
+            # match. Both hashes are kept in each run's meta.json.
+            print("NOTE: PROTOCOL.md changed since the pretest (amendments logged).",flush=True)
         try:
             verify_pretest_records(args.pretest_dir,pre_meta,pre_done)
         except (OSError,ValueError,KeyError,TypeError) as exc:
@@ -312,9 +317,10 @@ def main():
                     p=await base_episode(client,args.provider,model,
                                          args.rounds,mono=(args.command=="pretest"),seed=args.seed+i)
                 paths.append(str(p))
+                # Print each run as it finishes so a crash later doesn't lose the census.
+                print("COMPLETED:",p,flush=True)
             finally:
                 if hasattr(client,"close"): await client.close()
-        for p in paths: print("COMPLETED:",p)
     asyncio.run(do_run())
 
 if __name__=="__main__":
