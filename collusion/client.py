@@ -64,6 +64,20 @@ class MockClient:
                   "observations":""}
         return response,{"provider":self.provider,"model":self.model,"usage":{}}
 
+class ProviderRejected(RuntimeError):
+    """The provider refused the request (4xx other than rate limiting)."""
+
+_KEY_RE=re.compile(r"sk-[A-Za-z0-9_\-]{8,}")
+
+def _error_text(resp) -> str:
+    try:
+        body=resp.json()
+        err=body.get("error",body) if isinstance(body,dict) else body
+        text=(f"{err.get('type','')}: {err.get('message','')}" if isinstance(err,dict) else str(err))
+    except Exception:
+        text=resp.text
+    return _KEY_RE.sub("[redacted]",text)[:500]
+
 _ROUND_RE=re.compile(r"Round (\d+)")
 _THINK_RE=re.compile(r"<think>.*?</think>",re.S)
 
@@ -147,6 +161,11 @@ class APIClient:
                 if resp.status_code in (429,500,502,503,504) and attempt<2:
                     await asyncio.sleep(2**attempt)
                     continue
+                if 400<=resp.status_code<500 and resp.status_code!=429:
+                    # Client errors won't fix themselves on retry. Show the provider's
+                    # own error text (never the key) so the cause is visible.
+                    raise ProviderRejected(f"HTTP {resp.status_code} from {self.provider}: "
+                                           f"{_error_text(resp)}")
                 resp.raise_for_status()
                 data=resp.json()
                 if self.provider=="anthropic":
@@ -164,6 +183,8 @@ class APIClient:
                     meta["served_model"]=data["model"]
                 if "seed" in payload: meta["call_seed"]=payload["seed"]
                 return validate_reply(content),meta
+            except ProviderRejected:
+                raise
             except Exception as exc:
                 if attempt == 2:
                     raise RuntimeError(f"Model request failed; provider={self.provider},"

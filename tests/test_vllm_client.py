@@ -74,6 +74,22 @@ class VLLMClientTests(unittest.TestCase):
         self.assertEqual(reply["chosen_price"], 1.8)
         self.assertEqual(meta["served_model"], "deepseek-v3.1")
 
+    def test_client_error_shows_provider_message_without_key(self):
+        import asyncio, httpx
+        from collusion.client import ProviderRejected
+        def handler(request):
+            return httpx.Response(400, json={"type": "error", "error": {
+                "type": "invalid_request_error",
+                "message": "model: claude-x not found (key sk-ant-abcdef123456)"}})
+        client = get_client("vllm", "m", seed=1)
+        client.http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        with self.assertRaises(ProviderRejected) as ctx:
+            asyncio.run(client.choose("Round 1\nx", "Firm A"))
+        msg = str(ctx.exception)
+        self.assertIn("HTTP 400", msg)
+        self.assertIn("not found", msg)
+        self.assertNotIn("sk-ant-abcdef", msg)
+
     def test_missing_base_url_refuses(self):
         with mock.patch.dict(os.environ, {"VLLM_BASE_URL": ""}):
             with self.assertRaises(RuntimeError):
