@@ -4,7 +4,7 @@ Every sprint participant gets $50 of Modal credits. Modal credits pay for GPU ti
 
 vLLM honours a seed on each request. The harness sets that seed from the run, the agent and the period, so the cut copy and the no-cut copy of a fork get the same samples up to the cut. Tran and Yu found copies served this way agree on 94 to 98% of calls, compared with 23 to 45% through an API, so the noise floor should be much smaller than on Claude.
 
-Use this if nobody can add money for Claude. If the switch happens, Noah logs it in PROTOCOL.md (as A8) and pushes before any run.
+Backup if there's no Claude credit. Switching models has to be logged in PROTOCOL.md before any run.
 
 ## One-time setup (about 10 minutes, plus the model download)
 
@@ -46,30 +46,30 @@ export VLLM_BASE_URL=https://<your-url>.modal.run
 export VLLM_API_KEY=<your-long-random-string>
 ```
 
-Then the same steps as `README_INDEPENDENT_RUNNER.md`, with `--provider vllm`:
+Then the same steps as `docs/running.md`, with `--provider vllm`:
 
 ```
 python3 -m collusion.runner pretest --provider vllm --model Qwen/Qwen3-32B-FP8 --rounds 50 --execute-paid
 ```
 
-Check `completion.json` for `"pretest_near_one_product_monopoly": true` and post the result in the chat. If it passes:
+Check `completion.json` for `"pretest_near_one_product_monopoly": true`. If it passes:
 
 ```
 python3 -m collusion.runner base --provider vllm --model Qwen/Qwen3-32B-FP8 --rounds 150 --runs 12 --pretest-dir logs/pretest_ID --execute-paid | tee logs/live_base_census.txt
 ```
 
-Post the rho estimate in the chat and wait for Noah to log it. Then:
+Log the rho estimate in PROTOCOL.md before forking. Then:
 
 ```
 python3 -m collusion.campaign --base-list logs/live_base_census.txt --provider vllm --model Qwen/Qwen3-32B-FP8 --execute-paid
-python3 -m collusion.inference --campaign logs/campaign_ID --resamples 10000
+python3 -m collusion.amendment_analysis --campaign logs/campaign_ID --resamples 10000
 ```
 
 `--execute-paid` is still required. The harness uses it for any call to a real model, even though Modal credits pay for this one.
 
 ## If the pretest fails
 
-Tran and Yu found Qwen3-32B often just copies the rival's price, so it might not pass. If it doesn't, post the result first, because changing models has to be logged. Then change `MODEL_NAME` at the top of `modal_server/vllm_server.py`, redeploy, and pass the same name to `--model`. `Qwen/Qwen3-30B-A3B-Instruct-2507` is faster and fits on the same GPU. Larger models like Llama 3.3 70B need two GPUs (set `GPU = "H100:2"` and add `"--tensor-parallel-size", "2"` to the command).
+Tran and Yu found Qwen3-32B often just copies the rival's price, so it might not pass. If it doesn't, log it before switching models. Then change `MODEL_NAME` at the top of `modal_server/vllm_server.py`, redeploy, and pass the same name to `--model`. `Qwen/Qwen3-30B-A3B-Instruct-2507` is faster and fits on the same GPU. Larger models like Llama 3.3 70B need two GPUs (set `GPU = "H100:2"` and add `"--tensor-parallel-size", "2"` to the command).
 
 ## Costs and shutting it down
 
@@ -82,5 +82,5 @@ modal app stop collusion-vllm
 ## Things to watch
 
 - Qwen3 normally "thinks" before answering. The harness turns that off (`enable_thinking: false`) and strips any leftover `<think>` tags, so replies stay plain JSON like the protocol expects.
-- If replies fail to parse, or prices come back out of range, paste the error in the chat. Don't change the prompt to work around it without logging it.
+- If replies fail to parse or prices are out of range, don't change the prompt to work around it without logging it.
 - The secret, the URL and the API key never go in the repo. `logs/` is already ignored.
